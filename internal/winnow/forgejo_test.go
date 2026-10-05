@@ -149,30 +149,18 @@ func TestForgejoRenderers(t *testing.T) {
 func TestForgejoRuleFields(t *testing.T) {
 	review := fixture(t, "forgejo/pull_request_review_rejected-reviewed") // sender soup
 	tests := []struct {
-		name  string
-		bots  string
-		match string
-		req   func() *http.Request
-		want  int
+		name   string
+		bots   string
+		match  string
+		github bool // send a GitHub delivery, not the Forgejo review
+		want   int
 	}{
-		{"X-Forgejo-Event means forgejo", "", "{forge: forgejo}", func() *http.Request {
-			return forgejoDelivery("forgejo", "pull_request_rejected", "pull_request_review_rejected", review)
-		}, http.StatusAccepted},
-		{"review state", "", "{event: pull_request_review, action: submitted, review_state: changes_requested}", func() *http.Request {
-			return forgejoDelivery("forgejo", "pull_request_rejected", "pull_request_review_rejected", review)
-		}, http.StatusAccepted},
-		{"plain user is not a bot", "", "{sender_bot: true}", func() *http.Request {
-			return forgejoDelivery("forgejo", "pull_request_rejected", "pull_request_review_rejected", review)
-		}, http.StatusNoContent},
-		{"bots list without case on forgejo", "bots: [SOUP]", "{sender_bot: true}", func() *http.Request {
-			return forgejoDelivery("forgejo", "pull_request_rejected", "pull_request_review_rejected", review)
-		}, http.StatusAccepted},
-		{"bots list without case on github", "bots: [S0UP4200]", "{sender_bot: true}", func() *http.Request {
-			return signedDelivery("github-autobrr", "label", fixture(t, "github/label_created"))
-		}, http.StatusAccepted},
-		{"other login is not in the bots list", "bots: [renovate]", "{sender_bot: true}", func() *http.Request {
-			return forgejoDelivery("forgejo", "pull_request_rejected", "pull_request_review_rejected", review)
-		}, http.StatusNoContent},
+		{"X-Forgejo-Event means forgejo", "", "{forge: forgejo}", false, http.StatusAccepted},
+		{"review state", "", "{event: pull_request_review, action: submitted, review_state: changes_requested}", false, http.StatusAccepted},
+		{"plain user is not a bot", "", "{sender_bot: true}", false, http.StatusNoContent},
+		{"bots list without case on forgejo", "bots: [SOUP]", "{sender_bot: true}", false, http.StatusAccepted},
+		{"bots list without case on github", "bots: [S0UP4200]", "{sender_bot: true}", true, http.StatusAccepted},
+		{"other login is not in the bots list", "bots: [renovate]", "{sender_bot: true}", false, http.StatusNoContent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -187,7 +175,11 @@ routes:
   - match: `+tt.match+`
     to: [all]
 `)
-			if got := h.do(tt.req()).Code; got != tt.want {
+			req := forgejoDelivery("forgejo", "pull_request_rejected", "pull_request_review_rejected", review)
+			if tt.github {
+				req = signedDelivery("github-autobrr", "label", fixture(t, "github/label_created"))
+			}
+			if got := h.do(req).Code; got != tt.want {
 				t.Errorf("status = %d, want %d", got, tt.want)
 			}
 		})
@@ -222,6 +214,61 @@ func TestForgejoSignature(t *testing.T) {
 			if got := h.do(req).Code; got != tt.want {
 				t.Errorf("status = %d, want %d", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestForgejoMentions(t *testing.T) {
+	// replace fails the test when b does not hold old, so that no case
+	// passes on an unchanged fixture.
+	replace := func(b []byte, old, new string) []byte {
+		t.Helper()
+		if !bytes.Contains(b, []byte(old)) {
+			t.Fatalf("fixture does not hold %q", old)
+		}
+		return bytes.Replace(b, []byte(old), []byte(new), 1)
+	}
+	opened := fixture(t, "forgejo/pull_request-opened") // sender alice
+	tests := []struct {
+		name       string
+		event, typ string
+		body       []byte
+		want       string // the content and allowed_mentions of the message
+	}{
+		{"review request pings the reviewer", "pull_request", "pull_request_review_request",
+			replace(replace(opened, `"action": "opened"`, `"action": "review_requested"`), `"requested_reviewer": null`, `"requested_reviewer": {"login": "soup"}`),
+			`{"content": "<@222>", "allowed_mentions": {"parse": [], "users": ["222"]}}`},
+		{"assignment does not ping: Forgejo has no top-level assignee", "pull_request", "pull_request_assign",
+			replace(replace(opened, `"action": "opened"`, `"action": "assigned"`), `"assignee": null`, `"assignee": {"login": "soup"}`),
+			`{"allowed_mentions": {"parse": []}}`},
+		// Forgejo sets requested_reviewer to the reviewer on a review. The
+		// sender here is not the reviewer, so only the action stops the ping.
+		{"review does not ping requested_reviewer", "pull_request_approved", "pull_request_review_approved",
+			replace(fixture(t, "forgejo/pull_request_review_approved-reviewed"), `"sender": {
+    "id": 1,
+    "login": "soup"`, `"sender": {
+    "id": 2,
+    "login": "alice"`),
+			`{"allowed_mentions": {"parse": []}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, `
+sources:
+  forgejo: { secret: test-secret }
+users:
+  alice: "111"
+  soup: "222"
+sinks:
+  ping: { discord: https://discord.example.invalid/api/webhooks/1/token, mentions: true }
+routes:
+  - match: {}
+    to: [ping]
+`)
+			if got := h.do(forgejoDelivery("forgejo", tt.event, tt.typ, tt.body)).Code; got != http.StatusAccepted {
+				t.Fatalf("status = %d, want 202", got)
+			}
+			assertMentions(t, h.waitDiscord().Body, tt.want)
 		})
 	}
 }
