@@ -20,6 +20,9 @@ routes:
     to: [all]
 `
 
+// githubPoster is the poster of each message about a GitHub Event.
+const githubPoster = `"username": "GitHub", "avatar_url": "https://avatars.githubusercontent.com/u/9919?s=128"`
+
 // author is the embed author of the sender in most GitHub fixtures.
 const author = `"author": {
 	"name": "Codertocat",
@@ -43,7 +46,6 @@ func TestRenderers(t *testing.T) {
 		{"issue closed", "issues", "issues_closed", `{` + author + `,
 			"title": "[Codertocat/Hello-World] Issue closed: #1 Spelling error in the README file",
 			"url": "https://example.invalid/Codertocat/Hello-World/issues/1",
-			"description": "It looks like you accidently spelled 'commit' with two 't's.",
 			"color": 13574702
 		}`},
 		{"pull request opened", "pull_request", "pull_request_opened", `{` + author + `,
@@ -60,13 +62,11 @@ func TestRenderers(t *testing.T) {
 			},
 			"title": "[autobrr/qui] Pull request merged: #43 Add cross-seed search",
 			"url": "https://github.example.invalid/autobrr/qui/pull/43",
-			"description": "This adds a search for cross-seed matches.",
 			"color": 8540383
 		}`},
 		{"pull request closed without a merge", "pull_request", "pull_request_closed_unmerged", `{` + author + `,
 			"title": "[Codertocat/Hello-World] Pull request closed: #2 Update the README with new information.",
 			"url": "https://example.invalid/Codertocat/Hello-World/pull/2",
-			"description": "This is a pretty simple change that we need to pull into master.",
 			"color": 13574702
 		}`},
 		{"comment on an issue", "issue_comment", "issue_comment_created", `{` + author + `,
@@ -132,7 +132,7 @@ func TestRenderers(t *testing.T) {
 			if got := h.do(signedDelivery("github-autobrr", tt.event, fixture(t, "github/"+tt.fixture))).Code; got != http.StatusAccepted {
 				t.Fatalf("status = %d, want 202", got)
 			}
-			assertJSON(t, h.waitDiscord().Body, `{"embeds": [`+tt.want+`], "allowed_mentions": {"parse": []}}`)
+			assertJSON(t, h.waitDiscord().Body, `{`+githubPoster+`, "embeds": [`+tt.want+`], "allowed_mentions": {"parse": []}}`)
 		})
 	}
 }
@@ -161,5 +161,47 @@ func TestRendererCutsToDiscordLimits(t *testing.T) {
 	}
 	if n := utf8.RuneCountInString(em.Description); n != 4096 || !strings.HasSuffix(em.Description, "ü…") {
 		t.Errorf("description has %d characters, want 4096 that end in ü…", n)
+	}
+}
+
+// issueDescription sends an issues.opened Event with body as the issue text
+// and returns the embed description.
+func issueDescription(t *testing.T, body string) string {
+	t.Helper()
+	h := newHarness(t, catchAllConfig)
+	quoted, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := bytes.Replace(fixture(t, "github/issues_opened"), []byte(`"It looks like you accidently spelled 'commit' with two 't's."`), quoted, 1)
+	if got := h.do(signedDelivery("github-autobrr", "issues", payload)).Code; got != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", got)
+	}
+	var msg struct {
+		Embeds []struct {
+			Description string `json:"description"`
+		} `json:"embeds"`
+	}
+	if err := json.Unmarshal(h.waitDiscord().Body, &msg); err != nil {
+		t.Fatal(err)
+	}
+	return msg.Embeds[0].Description
+}
+
+func TestRendererCleansBody(t *testing.T) {
+	body := "<!-- Fill in the template. -->\r\n## Summary\r\n\r\n\r\n\r\nFixes the [crash](https://example.invalid/1).\n" +
+		"[![CI](https://example.invalid/ci.svg)](https://example.invalid/ci)\n![screenshot](https://example.invalid/a.png)<img src=\"https://example.invalid/b.png\" width=\"200\">\n\n  \n\n" +
+		"<details>\n<summary>Logs</summary>\n\npanic: nil map in `Vec<String>`<br/>\n</details>\n\n- [x] Tests\n- [ ] Docs\n<!--\nmore\n-->"
+	want := "## Summary\n\nFixes the [crash](https://example.invalid/1).\n\nLogs\n\npanic: nil map in `Vec<String>`\n\n- [x] Tests\n- [ ] Docs"
+	if got := issueDescription(t, body); got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
+func TestRendererCutsBodyAtWord(t *testing.T) {
+	want := strings.Repeat("word ", 818) + "word…"
+	if got := issueDescription(t, strings.Repeat("word ", 1000)); got != want {
+		t.Errorf("description has %d characters and ends in %q, want %d that end in %q",
+			utf8.RuneCountInString(got), got[max(0, len(got)-12):], utf8.RuneCountInString(want), "word word…")
 	}
 }

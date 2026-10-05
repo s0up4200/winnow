@@ -32,6 +32,10 @@ _Avoid_: output, channel, destination
 A part of winnow that turns one kind of Event into a Discord message.
 _Avoid_: formatter, template
 
+**Poster**:
+The name and icon that a Discord message shows as its sender. The Poster is the forge of the Event, for example `GitHub`.
+_Avoid_: bot name, webhook user
+
 **Fallback message**:
 The generic message for a routed Event that has no Renderer. It names the event, the action, the repository, and the sender. It links to the main object.
 _Avoid_: default message, generic embed

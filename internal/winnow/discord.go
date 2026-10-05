@@ -15,6 +15,8 @@ import (
 
 // message is the JSON body of one Discord webhook call.
 type message struct {
+	Username        string          `json:"username"`          // the poster name
+	AvatarURL       string          `json:"avatar_url"`        // the poster icon
 	Content         string          `json:"content,omitempty"` // the ping, or empty
 	Embeds          []embed         `json:"embeds"`
 	AllowedMentions allowedMentions `json:"allowed_mentions"`
