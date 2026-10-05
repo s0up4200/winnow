@@ -82,6 +82,11 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if route.Drop {
+		s.logDecision(e, "dropped", route.Name, []string{})
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	s.logDecision(e, "sent", route.Name, route.To)
 	for _, to := range route.To {
 		d := delivery{event: e, route: route.Name}

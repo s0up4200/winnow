@@ -28,8 +28,9 @@ type SinkConfig struct {
 // Route is one entry in the ordered route list.
 type Route struct {
 	Name  string   `yaml:"name"` // Load sets "#<position>" when the file has no name
-	Match *Matcher `yaml:"match"`
+	Match Matchers `yaml:"match"`
 	To    []string `yaml:"to"`
+	Drop  bool     `yaml:"drop"`
 }
 
 // Load parses a configuration file. Startup and `winnow check` both call it.
@@ -53,6 +54,11 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		}
 		if r.Match == nil {
 			errs = append(errs, fmt.Errorf("route %s: match is missing", r.Name))
+		}
+		for j := range r.Match {
+			if err := r.Match[j].compile(false); err != nil {
+				errs = append(errs, fmt.Errorf("route %s: %w", r.Name, err))
+			}
 		}
 		for _, to := range r.To {
 			if _, ok := cfg.Sinks[to]; !ok {
