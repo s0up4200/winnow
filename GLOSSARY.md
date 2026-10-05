@@ -35,3 +35,7 @@ _Avoid_: formatter, template
 **Fallback message**:
 The generic message for a routed Event that has no Renderer. It names the event, the action, the repository, and the sender. It links to the main object.
 _Avoid_: default message, generic embed
+
+**User map**:
+The list that links a forge login to a Discord user. Winnow pings only users in this list.
+_Avoid_: mention list, user mapping

@@ -1,0 +1,49 @@
+{
+  "action": "review_requested",
+  "repository": {
+    "id": 186853002,
+    "name": "Hello-World",
+    "full_name": "Codertocat/Hello-World",
+    "private": false,
+    "html_url": "https://example.invalid/Codertocat/Hello-World",
+    "owner": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  },
+  "sender": {
+    "login": "Codertocat",
+    "id": 21031067,
+    "type": "User",
+    "avatar_url": "https://example.invalid/u/21031067?v=4",
+    "html_url": "https://example.invalid/Codertocat"
+  },
+  "number": 2,
+  "pull_request": {
+    "number": 2,
+    "title": "Update the README with new information.",
+    "body": "This is a pretty simple change that we need to pull into master.",
+    "html_url": "https://example.invalid/Codertocat/Hello-World/pull/2",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "merged_at": null,
+    "user": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  },
+  "requested_reviewer": {
+    "login": "octocat",
+    "id": 5346,
+    "type": "User",
+    "avatar_url": "https://example.invalid/avatars/u/5346?",
+    "html_url": "https://example.invalid/octocat"
+  }
+}

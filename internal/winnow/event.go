@@ -36,6 +36,7 @@ type Event struct {
 	Body         string // text of the most specific object, for example the comment
 	SenderURL    string
 	SenderAvatar string
+	Target       string // login of the requested reviewer or the assignee; only for review_requested and assigned
 	Push         Push   // push only
 	Alert        *Alert // security Events
 }
@@ -187,6 +188,10 @@ type ghPayload struct {
 		Summary  string `json:"summary"`
 		Severity string `json:"severity"`
 	} `json:"repository_advisory"`
+	// Forgejo also sets requested_reviewer on a review, so winnow reads it
+	// only for review_requested. A Forgejo assigned has no assignee.
+	RequestedReviewer ghUser `json:"requested_reviewer"`
+	Assignee          ghUser `json:"assignee"`
 }
 
 // parseEvent turns a delivery into an Event. A GitHub ping becomes an Event
@@ -216,6 +221,12 @@ func parseEvent(source string, h http.Header, body []byte) (*Event, error) {
 		Delivery:     h.Get("X-GitHub-Delivery"),
 		SenderURL:    p.Sender.HTMLURL,
 		SenderAvatar: p.Sender.AvatarURL,
+	}
+	switch p.Action {
+	case "review_requested":
+		e.Target = p.RequestedReviewer.Login
+	case "assigned":
+		e.Target = p.Assignee.Login
 	}
 	var issue ghTopic
 	if p.Issue != nil {

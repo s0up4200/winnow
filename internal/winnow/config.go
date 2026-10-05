@@ -16,6 +16,7 @@ import (
 type Config struct {
 	Listen  string                `yaml:"listen"`
 	Sources map[string]Source     `yaml:"sources"`
+	Users   map[string]string     `yaml:"users"` // the User map: lowercase forge login to Discord user ID
 	Sinks   map[string]SinkConfig `yaml:"sinks"`
 	Routes  []Route               `yaml:"routes"`
 }
@@ -27,7 +28,8 @@ type Source struct {
 
 // SinkConfig is the configuration of one Sink.
 type SinkConfig struct {
-	Discord string `yaml:"discord"`
+	Discord  string `yaml:"discord"`
+	Mentions bool   `yaml:"mentions"` // keep the ping of a message
 }
 
 // Route is one entry in the ordered route list.
@@ -57,6 +59,12 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		}
 		cfg.Sources[name] = s
 	}
+	// A forge login is not case-sensitive.
+	users := make(map[string]string, len(cfg.Users))
+	for login, id := range cfg.Users {
+		users[strings.ToLower(login)] = id
+	}
+	cfg.Users = users
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sinks)) {
 		s := cfg.Sinks[name]
 		var err error

@@ -25,7 +25,13 @@ func New(cfg *Config, log *slog.Logger) *Server {
 	s := &Server{ServeMux: http.NewServeMux(), cfg: cfg, sinks: map[string]*sink{}, log: log}
 	for name, sc := range cfg.Sinks {
 		discord := newDiscordSender(sc.Discord)
-		s.sinks[name] = startSink(name, func(e *Event) error { return discord.send(render(e)) }, log)
+		s.sinks[name] = startSink(name, func(e *Event) error {
+			msg := render(e, cfg.Users)
+			if !sc.Mentions { // only a Sink with mentions: true keeps the ping
+				msg.Content, msg.AllowedMentions.Users = "", nil
+			}
+			return discord.send(msg)
+		}, log)
 	}
 	// The pattern has no method, so that an unknown Source gets 404 before
 	// a wrong method gets 405.

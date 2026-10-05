@@ -25,8 +25,11 @@ const (
 
 // render turns an Event into one Discord message. It selects the Renderer by
 // the Event name. An Event name with no Renderer gets the Fallback message.
-func render(e *Event) message {
+// The message pings the target of e when users holds the target and the
+// target is not the sender. A Fallback message never pings.
+func render(e *Event, users map[string]string) message {
 	var em embed
+	ping := true
 	switch e.Name {
 	case "issues":
 		em = renderIssue(e)
@@ -61,10 +64,16 @@ func render(e *Event) message {
 		em = renderAlert(e, "Repository advisory")
 	default:
 		em = fallback(e)
+		ping = false
 	}
 	em.Title = cut(em.Title, maxTitle)
 	em.Description = cut(em.Description, maxDescription)
-	return message{Embeds: []embed{em}}
+	msg := message{Embeds: []embed{em}}
+	if id, ok := users[strings.ToLower(e.Target)]; ok && ping && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
+		msg.Content = "<@" + id + ">"
+		msg.AllowedMentions.Users = []string{id}
+	}
+	return msg
 }
 
 // fallback returns the embed of the Fallback message: "<event>.<action> on
