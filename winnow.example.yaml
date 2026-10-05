@@ -1,0 +1,50 @@
+sources:
+  github-autobrr:  { secret: "${WINNOW_SECRET_GITHUB_AUTOBRR}" }
+  github-s0up4200: { secret: "${WINNOW_SECRET_GITHUB_S0UP4200}" }
+  forgejo:         { secret: "${WINNOW_SECRET_FORGEJO}" }
+
+bots:
+  - renovate        # Forgejo Renovate account
+
+sinks:
+  security: { discord: "${WINNOW_DISCORD_SECURITY}" }
+  autobrr:  { discord: "${WINNOW_DISCORD_AUTOBRR}" }
+  qui:      { discord: "${WINNOW_DISCORD_QUI}" }
+  soup:     { discord: "${WINNOW_DISCORD_SOUP}" }
+  releases: { discord: "${WINNOW_DISCORD_RELEASES}" }
+
+routes:
+  - name: bot-comments
+    drop: true
+    match:
+      event: [issue_comment, pull_request_review, pull_request_review_comment]
+      sender_bot: true
+      not:
+        - sender: ["renovate[bot]", renovate]
+        - { sender: "dependabot[bot]", repo: autobrr/qui }
+  - name: security
+    to: [security]
+    match:
+      event: [dependabot_alert, code_scanning_alert, secret_scanning_alert, repository_advisory]
+  - name: stars-forks
+    drop: true
+    match: { event: [watch, fork] }
+  - name: ci-noise
+    drop: true
+    match:
+      event: [workflow_run, workflow_job, check_run, check_suite, status, deployment, deployment_status, page_build]
+  - name: qui-releases
+    to: [releases, qui]
+    match: { event: release, action: published, repo: autobrr/qui }
+  - name: releases
+    to: [releases]
+    match: { event: release, action: published }
+  - name: qui
+    to: [qui]
+    match: { repo: autobrr/qui }
+  - name: autobrr
+    to: [autobrr]
+    match: { owner: autobrr }
+  - name: soup
+    to: [soup]
+    match: { source: [github-s0up4200, forgejo] }
