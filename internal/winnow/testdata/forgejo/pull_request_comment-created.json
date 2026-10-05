@@ -1,0 +1,96 @@
+{
+  "action": "created",
+  "issue": {
+    "id": 105,
+    "number": 5,
+    "title": "Add Forgejo support",
+    "body": "Parses X-Forgejo-Event-Type.",
+    "html_url": "https://example.invalid/soup/winnow-test/pulls/5",
+    "state": "open",
+    "user": {
+      "id": 2,
+      "login": "alice",
+      "username": "alice",
+      "full_name": "",
+      "email": "alice@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/alice",
+      "html_url": "https://example.invalid/alice"
+    },
+    "assignee": null,
+    "assignees": null,
+    "labels": [],
+    "pull_request": {
+      "merged": false,
+      "merged_at": null,
+      "draft": false,
+      "html_url": "https://example.invalid/soup/winnow-test/pulls/5"
+    }
+  },
+  "pull_request": {
+    "id": 205,
+    "number": 5,
+    "title": "Add Forgejo support",
+    "body": "Parses X-Forgejo-Event-Type.",
+    "html_url": "https://example.invalid/soup/winnow-test/pulls/5",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "merged_at": null,
+    "merged_by": null,
+    "user": {
+      "id": 2,
+      "login": "alice",
+      "username": "alice",
+      "full_name": "",
+      "email": "alice@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/alice",
+      "html_url": "https://example.invalid/alice"
+    },
+    "assignee": null,
+    "assignees": null,
+    "requested_reviewers": null,
+    "labels": []
+  },
+  "comment": {
+    "id": 901,
+    "html_url": "https://example.invalid/soup/winnow-test/pulls/5#issuecomment-901",
+    "user": {
+      "id": 1,
+      "login": "soup",
+      "username": "soup",
+      "full_name": "",
+      "email": "soup@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/soup",
+      "html_url": "https://example.invalid/soup"
+    },
+    "body": "Looks good, one nit below.",
+    "created_at": "2026-10-05T12:00:00Z",
+    "updated_at": "2026-10-05T12:00:00Z"
+  },
+  "repository": {
+    "id": 10,
+    "name": "winnow-test",
+    "full_name": "soup/winnow-test",
+    "private": false,
+    "html_url": "https://example.invalid/soup/winnow-test",
+    "owner": {
+      "id": 1,
+      "login": "soup",
+      "username": "soup",
+      "full_name": "",
+      "email": "soup@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/soup",
+      "html_url": "https://example.invalid/soup"
+    }
+  },
+  "sender": {
+    "id": 1,
+    "login": "soup",
+    "username": "soup",
+    "full_name": "",
+    "email": "soup@noreply.example.invalid",
+    "avatar_url": "https://example.invalid/avatars/soup",
+    "html_url": "https://example.invalid/soup"
+  },
+  "is_pull": true
+}

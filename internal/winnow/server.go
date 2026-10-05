@@ -29,7 +29,13 @@ func New(cfg *Config, log *slog.Logger) *Server {
 	s := &Server{ServeMux: http.NewServeMux(), cfg: cfg, sinks: map[string]*sink{}, log: log, drain: make(chan struct{}), stop: stop}
 	for name, sc := range cfg.Sinks {
 		discord := newDiscordSender(sc.Discord)
-		s.sinks[name] = startSink(ctx, s.drain, name, func(ctx context.Context, e *Event) error { return discord.send(ctx, render(e)) }, log)
+		s.sinks[name] = startSink(ctx, s.drain, name, func(ctx context.Context, e *Event) error {
+			msg := render(e, cfg.Users)
+			if !sc.Mentions { // only a Sink with mentions: true keeps the ping
+				msg.Content, msg.AllowedMentions.Users = "", nil
+			}
+			return discord.send(ctx, msg)
+		}, log)
 	}
 	// The pattern has no method, so that an unknown Source gets 404 before
 	// a wrong method gets 405.
@@ -84,11 +90,11 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot read body", http.StatusBadRequest)
 		return
 	}
-	if !validSignature(src.Secret, body, r.Header.Get("X-Hub-Signature-256")) {
+	if !validSignature(src.Secret, body, r.Header) {
 		http.Error(w, "bad signature", http.StatusUnauthorized)
 		return
 	}
-	e, err := parseEvent(name, r.Header, body)
+	e, err := parseEvent(name, s.cfg.Bots, r.Header, body)
 	if err != nil {
 		http.Error(w, "cannot parse delivery: "+err.Error(), http.StatusBadRequest)
 		return

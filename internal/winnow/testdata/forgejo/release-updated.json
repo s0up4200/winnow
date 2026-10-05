@@ -1,0 +1,47 @@
+{
+  "action": "updated",
+  "release": {
+    "id": 7,
+    "tag_name": "v1.0.0",
+    "target_commitish": "main",
+    "name": "v1.0.0",
+    "body": "First release.\n\nEdited.",
+    "html_url": "https://example.invalid/soup/winnow-test/releases/tag/v1.0.0",
+    "draft": false,
+    "prerelease": false,
+    "author": {
+      "id": 1,
+      "login": "soup",
+      "username": "soup",
+      "full_name": "",
+      "email": "soup@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/soup",
+      "html_url": "https://example.invalid/soup"
+    }
+  },
+  "repository": {
+    "id": 10,
+    "name": "winnow-test",
+    "full_name": "soup/winnow-test",
+    "private": false,
+    "html_url": "https://example.invalid/soup/winnow-test",
+    "owner": {
+      "id": 1,
+      "login": "soup",
+      "username": "soup",
+      "full_name": "",
+      "email": "soup@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/soup",
+      "html_url": "https://example.invalid/soup"
+    }
+  },
+  "sender": {
+    "id": 1,
+    "login": "soup",
+    "username": "soup",
+    "full_name": "",
+    "email": "soup@noreply.example.invalid",
+    "avatar_url": "https://example.invalid/avatars/soup",
+    "html_url": "https://example.invalid/soup"
+  }
+}

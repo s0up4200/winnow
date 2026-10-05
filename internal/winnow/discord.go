@@ -15,6 +15,7 @@ import (
 
 // message is the JSON body of one Discord webhook call.
 type message struct {
+	Content         string          `json:"content,omitempty"` // the ping, or empty
 	Embeds          []embed         `json:"embeds"`
 	AllowedMentions allowedMentions `json:"allowed_mentions"`
 }
@@ -35,9 +36,10 @@ type embedAuthor struct {
 
 // allowedMentions controls which mentions in a message ping. An empty Parse
 // list (json/v2 encodes nil as []) makes sure that no text in the message
-// pings anyone.
+// pings anyone. Only the user IDs in Users can get a ping.
 type allowedMentions struct {
 	Parse []string `json:"parse"`
+	Users []string `json:"users,omitempty"`
 }
 
 // retryBase is the wait before the first retry after a server error or a
