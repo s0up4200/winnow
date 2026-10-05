@@ -1,5 +1,5 @@
-// Command winnow receives GitHub webhooks, routes them by Rules, and sends
-// them to Discord.
+// Command winnow receives GitHub and Forgejo webhooks, routes them by Rules,
+// and sends them to Discord.
 package main
 
 import (
@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"syscall"
 	"time"
 
@@ -25,13 +24,13 @@ import (
 const drainTime = 10 * time.Second
 
 func main() {
-	var cmd string
-	if len(os.Args) > 1 && (os.Args[1] == "check" || os.Args[1] == "healthcheck") {
-		cmd = os.Args[1]
-		os.Args = slices.Delete(os.Args, 1, 2)
-	}
 	configPath := flag.String("config", "/config/winnow.yaml", "path to the configuration file")
 	flag.Parse()
+	// --config can come before or after the command.
+	cmd := flag.Arg(0)
+	if cmd != "" {
+		flag.CommandLine.Parse(flag.Args()[1:])
+	}
 
 	switch cmd {
 	case "check":

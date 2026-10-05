@@ -23,15 +23,15 @@ type Event struct {
 	SenderBot bool
 
 	Ref         *string // push
-	Merged      *bool   // pull request
-	Draft       *bool   // pull request
-	ReviewState *string // review
-	IsPull      *bool   // issue or comment on an issue: true on a pull request
+	Merged      *bool   // pull_request
+	Draft       *bool   // pull_request
+	ReviewState *string // pull_request_review
+	IsPull      *bool   // issue_comment: true on a pull request
 
-	Delivery string // X-GitHub-Delivery or X-Forgejo-Delivery
-	URL      string // link to the main object
-
-	// The Renderers read the fields below. Rules cannot match them.
+	// Rules cannot match the fields below. The log lines show Delivery. The
+	// Renderers read the others.
+	Delivery     string // X-GitHub-Delivery or X-Forgejo-Delivery
+	URL          string // link to the main object
 	Title        string // title of the main object, for example the issue title
 	Number       int    // number of the issue, pull request, or discussion; 0 if none
 	Body         string // text of the most specific object, for example the comment
@@ -106,11 +106,6 @@ type ghTopic struct {
 	Number  int    `json:"number"`
 	Title   string `json:"title"`
 	Body    string `json:"body"`
-}
-
-// ghLink is an object in a payload of which winnow reads only the link.
-type ghLink struct {
-	HTMLURL string `json:"html_url"`
 }
 
 // ghPayload holds the fields of a GitHub payload that winnow reads. A
@@ -299,6 +294,21 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 	}
 	if forge == "forgejo" {
 		mapForgejo(e, h.Get("X-Forgejo-Event-Type"), &p)
+	}
+	// An optional Rule field belongs to one Event name. Another Event name
+	// with the same payload key does not have the field, for example ref on
+	// create.
+	if e.Name != "push" {
+		e.Ref = nil
+	}
+	if e.Name != "pull_request" {
+		e.Merged, e.Draft = nil, nil
+	}
+	if e.Name != "pull_request_review" {
+		e.ReviewState = nil
+	}
+	if e.Name != "issue_comment" {
+		e.IsPull = nil
 	}
 	return e, nil
 }

@@ -80,7 +80,7 @@ sinks:
 routes:
   - match: {}
     to: [a]
-`, "sinks.a: discord URL is missing"},
+`, "sinks.a.discord is empty"},
 		{"route with to and drop", `
 sinks:
   a: { discord: https://discord.example.invalid/1 }

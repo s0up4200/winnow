@@ -262,6 +262,12 @@ func TestRuleFields(t *testing.T) {
 		{"event matches as it is", "{event: LABEL}", "label", label, http.StatusNoContent},
 		{"missing field never matches", "{merged: true}", "label", label, http.StatusNoContent},
 		{"not on a missing field passes", "{not: {draft: true}}", "label", label, http.StatusAccepted},
+		// An optional Rule field belongs to one Event name, also when another
+		// payload has the same key.
+		{"ref only on push", `{ref: "*"}`, "create",
+			bytes.Replace(label, []byte(`"action"`), []byte(`"ref": "main", "action"`), 1), http.StatusNoContent},
+		{"draft only on pull_request", "{draft: false}", "pull_request_review", fixture(t, "github/pull_request_review_submitted"), http.StatusNoContent},
+		{"is_pull only on issue_comment", "{is_pull: false}", "issues", fixture(t, "github/issues_opened"), http.StatusNoContent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -31,6 +32,9 @@ type Source struct {
 type SinkConfig struct {
 	Discord  string `yaml:"discord"`
 	Mentions bool   `yaml:"mentions"` // keep the ping of a message
+	// retryBase is the retry base of the Discord sender; 0 means 1 s. It is
+	// not in the file. Tests set a few milliseconds.
+	retryBase time.Duration
 }
 
 // Route is one entry in the ordered route list.
@@ -50,14 +54,18 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 	if err := dec.Decode(cfg); err != nil {
 		return nil, []error{err}, nil
 	}
+	// required expands *v and adds an error when *v is then empty.
+	required := func(key string, v *string) {
+		var err error
+		if *v, err = expand(*v); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", key, err))
+		} else if *v == "" {
+			errs = append(errs, fmt.Errorf("%s is empty", key))
+		}
+	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sources)) {
 		s := cfg.Sources[name]
-		var err error
-		if s.Secret, err = expand(s.Secret); err != nil {
-			errs = append(errs, fmt.Errorf("sources.%s.secret: %w", name, err))
-		} else if s.Secret == "" {
-			errs = append(errs, fmt.Errorf("sources.%s: secret is empty", name))
-		}
+		required("sources."+name+".secret", &s.Secret)
 		cfg.Sources[name] = s
 	}
 	// A forge login is not case-sensitive.
@@ -68,12 +76,7 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 	cfg.Users = users
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sinks)) {
 		s := cfg.Sinks[name]
-		var err error
-		if s.Discord, err = expand(s.Discord); err != nil {
-			errs = append(errs, fmt.Errorf("sinks.%s.discord: %w", name, err))
-		} else if s.Discord == "" {
-			errs = append(errs, fmt.Errorf("sinks.%s: discord URL is missing", name))
-		}
+		required("sinks."+name+".discord", &s.Discord)
 		cfg.Sinks[name] = s
 	}
 	used := map[string]bool{}

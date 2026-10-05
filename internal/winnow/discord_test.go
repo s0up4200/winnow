@@ -66,7 +66,7 @@ func TestServerErrorRetriesRunOut(t *testing.T) {
 	prev := h.waitDiscord()
 	for i := range 3 {
 		r := h.waitDiscord()
-		if gap, want := r.At.Sub(prev.At), retryBase<<i; gap < want {
+		if gap, want := r.At.Sub(prev.At), testRetryBase<<i; gap < want {
 			t.Errorf("retry %d after %v, want at least %v", i+1, gap, want)
 		}
 		prev = r
@@ -226,5 +226,19 @@ func TestShutdownLogsUnsentEvents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A handler can still run when the HTTP server stop times out. An Event that
+// it routes after the workers stopped gets a shutdown line.
+func TestEventAfterShutdownIsLogged(t *testing.T) {
+	h := newHarness(t, quiConfig)
+	shutdown(h, 100*time.Millisecond)
+
+	deliverLabel(t, h)
+
+	f := h.waitFailure()
+	if f["reason"] != "shutdown" || f["sink"] != "qui" || f["delivery"] != testDelivery || f["attempts"] != 0.0 {
+		t.Errorf("failed delivery line = %v, want reason shutdown with no attempts", f)
 	}
 }

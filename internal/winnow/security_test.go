@@ -11,6 +11,7 @@ func TestSecurityRenderers(t *testing.T) {
 	}{
 		{"dependabot_alert", "github/dependabot_alert_created", `{
 			"embeds": [{
+				"author": {"name": "github"},
 				"title": "[autobrr/qui] Dependabot alert created: #20 semver vulnerable to Regular Expression Denial of Service",
 				"url": "https://github.example.invalid/autobrr/qui/security/dependabot/20",
 				"description": "Severity: medium\nPackage: semver (npm)\nPatched in: 7.5.2",
@@ -20,6 +21,7 @@ func TestSecurityRenderers(t *testing.T) {
 		}`},
 		{"code_scanning_alert", "github/code_scanning_alert_created", `{
 			"embeds": [{
+				"author": {"name": "github"},
 				"title": "[autobrr/qui] Code scanning alert created: #10 Database query built from user-controlled sources",
 				"url": "https://github.example.invalid/autobrr/qui/security/code-scanning/10",
 				"description": "Severity: error",
@@ -29,6 +31,7 @@ func TestSecurityRenderers(t *testing.T) {
 		}`},
 		{"secret_scanning_alert", "github/secret_scanning_alert_created", `{
 			"embeds": [{
+				"author": {"name": "s0up4200"},
 				"title": "[autobrr/qui] Secret scanning alert created: #3 GitHub Personal Access Token",
 				"url": "https://github.example.invalid/autobrr/qui/security/secret-scanning/3",
 				"description": "Validity: active",
@@ -36,7 +39,7 @@ func TestSecurityRenderers(t *testing.T) {
 			}],
 			"allowed_mentions": {"parse": []}
 		}`},
-		// The payload has no sender (decision 4).
+		// The payload has no sender, so the embed has no author.
 		{"repository_advisory", "github/repository_advisory_published", `{
 			"embeds": [{
 				"title": "[autobrr/qui] Repository advisory published: Path traversal in upload handler",

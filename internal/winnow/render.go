@@ -24,12 +24,12 @@ const (
 )
 
 // render turns an Event into one Discord message. It selects the Renderer by
-// the Event name. An Event name with no Renderer gets the Fallback message.
-// The message pings the target of e when users holds the target and the
-// target is not the sender. A Fallback message never pings.
+// the Event name. An Event name with no Renderer, or a Renderer that returns
+// the zero embed, gets the Fallback message. The message pings the target of
+// e when users holds the target and the target is not the sender. A Fallback
+// message never pings.
 func render(e *Event, users map[string]string) message {
 	var em embed
-	ping := true
 	switch e.Name {
 	case "issues":
 		em = renderIssue(e)
@@ -62,9 +62,10 @@ func render(e *Event, users map[string]string) message {
 		em = renderAlert(e, "Secret scanning alert")
 	case "repository_advisory":
 		em = renderAlert(e, "Repository advisory")
-	default:
+	}
+	ping := em != (embed{})
+	if !ping {
 		em = fallback(e)
-		ping = false
 	}
 	em.Title = cut(em.Title, maxTitle)
 	em.Description = cut(em.Description, maxDescription)
@@ -175,13 +176,13 @@ func renderPush(e *Event) embed {
 	return em
 }
 
-// renderAlert returns the embed of a security Event:
+// renderAlert returns the embed of a security Event: the sender as author,
 // "[repo] <kind> <action>: #n summary", and one description line for each
-// Alert field that is set. An Event with no Alert gets the Fallback message.
+// Alert field that is set. An Event with no Alert gets the zero embed.
 func renderAlert(e *Event, kind string) embed {
 	a := e.Alert
 	if a == nil {
-		return fallback(e)
+		return embed{}
 	}
 	title := "[" + e.Repo + "] " + kind + " " + e.Action + ": "
 	if a.Number != 0 {
@@ -199,12 +200,11 @@ func renderAlert(e *Event, kind string) embed {
 	}
 	add("Patched in", a.Patched)
 	add("Validity", a.Validity)
-	return embed{
-		Title:       title + a.Summary,
-		URL:         e.URL,
-		Description: strings.Join(lines, "\n"),
-		Color:       colorSecurity,
-	}
+	// titled sets the author. A security Event can come with no sender. Then
+	// the author is empty and the embed has no author.
+	em := titled(e, "")
+	em.Title, em.Description, em.Color = title+a.Summary, strings.Join(lines, "\n"), colorSecurity
+	return em
 }
 
 // words changes an action such as review_requested to "review requested".
