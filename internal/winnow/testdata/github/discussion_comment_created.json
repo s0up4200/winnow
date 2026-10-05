@@ -1,0 +1,53 @@
+{
+  "action": "created",
+  "repository": {
+    "id": 186853002,
+    "name": "Hello-World",
+    "full_name": "Codertocat/Hello-World",
+    "private": false,
+    "html_url": "https://example.invalid/Codertocat/Hello-World",
+    "owner": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  },
+  "sender": {
+    "login": "Codertocat",
+    "id": 21031067,
+    "type": "User",
+    "avatar_url": "https://example.invalid/u/21031067?v=4",
+    "html_url": "https://example.invalid/Codertocat"
+  },
+  "discussion": {
+    "number": 4,
+    "title": "TEST edit",
+    "body": "TEST edit",
+    "html_url": "https://example.invalid/Codertocat/Hello-World/discussions/4",
+    "state": "open",
+    "category": {
+      "name": "General"
+    },
+    "user": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  },
+  "comment": {
+    "id": 550062,
+    "body": "ANSWER",
+    "html_url": "https://example.invalid/Codertocat/Hello-World/discussions/4#discussioncomment-550062",
+    "user": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  }
+}

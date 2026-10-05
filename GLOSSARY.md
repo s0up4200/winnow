@@ -28,6 +28,10 @@ _Avoid_: destination, target, filter
 A delivery target, for example the webhook URL of one Discord channel.
 _Avoid_: output, channel, destination
 
+**Renderer**:
+A part of winnow that turns one kind of Event into a Discord message.
+_Avoid_: formatter, template
+
 **Fallback message**:
 The generic message for a routed Event that has no Renderer. It names the event, the action, the repository, and the sender. It links to the main object.
 _Avoid_: default message, generic embed

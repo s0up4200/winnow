@@ -30,7 +30,30 @@ type Event struct {
 	Delivery string // X-GitHub-Delivery
 	URL      string // link to the main object
 
-	Alert *Alert // security Events
+	// The Renderers read the fields below. Rules cannot match them.
+	Title        string // title of the main object, for example the issue title
+	Number       int    // number of the issue, pull request, or discussion; 0 if none
+	Body         string // text of the most specific object, for example the comment
+	SenderURL    string
+	SenderAvatar string
+	Push         Push   // push only
+	Alert        *Alert // security Events
+}
+
+// Push is the data of a push Event.
+type Push struct {
+	Commits []Commit
+	Size    int  // the number of commits; can be more than len(Commits)
+	Created bool // the push made the ref
+	Deleted bool // the push deleted the ref
+}
+
+// Commit is one commit in a push.
+type Commit struct {
+	ID      string
+	Message string
+	URL     string
+	Author  string
 }
 
 // Alert holds the data of a security Event that its Renderer shows. A field
@@ -62,8 +85,25 @@ func (e *Event) logAttrs() []any {
 
 // ghUser is a GitHub user in a payload.
 type ghUser struct {
-	Login string `json:"login"`
-	Type  string `json:"type"`
+	Login     string `json:"login"`
+	Type      string `json:"type"`
+	HTMLURL   string `json:"html_url"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+// ghText is an object in a payload with a link and a text, for example a
+// comment.
+type ghText struct {
+	HTMLURL string `json:"html_url"`
+	Body    string `json:"body"`
+}
+
+// ghTopic is an issue, a pull request, or a discussion in a payload.
+type ghTopic struct {
+	HTMLURL string `json:"html_url"`
+	Number  int    `json:"number"`
+	Title   string `json:"title"`
+	Body    string `json:"body"`
 }
 
 // ghLink is an object in a payload of which winnow reads only the link.
@@ -83,22 +123,41 @@ type ghPayload struct {
 		Owner    ghUser `json:"owner"`
 	} `json:"repository"`
 	PullRequest struct {
-		HTMLURL string `json:"html_url"`
-		Merged  *bool  `json:"merged"`
-		Draft   *bool  `json:"draft"`
+		ghTopic
+		Merged *bool `json:"merged"`
+		Draft  *bool `json:"draft"`
 	} `json:"pull_request"`
 	Issue *struct {
-		HTMLURL     string    `json:"html_url"`
+		ghTopic
 		PullRequest *struct{} `json:"pull_request"`
 	} `json:"issue"`
 	Review struct {
-		HTMLURL string  `json:"html_url"`
-		State   *string `json:"state"`
+		ghText
+		State *string `json:"state"`
 	} `json:"review"`
-	Comment    ghLink `json:"comment"`
-	Discussion ghLink `json:"discussion"`
-	Release    ghLink `json:"release"`
-	Alert      *struct {
+	Comment    ghText  `json:"comment"`
+	Discussion ghTopic `json:"discussion"`
+	Release    struct {
+		ghText
+		Name    string `json:"name"`
+		TagName string `json:"tag_name"`
+	} `json:"release"`
+	Forkee struct {
+		HTMLURL  string `json:"html_url"`
+		FullName string `json:"full_name"`
+	} `json:"forkee"`
+	Commits []struct {
+		ID      string `json:"id"`
+		Message string `json:"message"`
+		URL     string `json:"url"`
+		Author  struct {
+			Name     string `json:"name"`
+			Username string `json:"username"`
+		} `json:"author"`
+	} `json:"commits"`
+	Created bool `json:"created"`
+	Deleted bool `json:"deleted"`
+	Alert   *struct {
 		Number     int    `json:"number"`
 		HTMLURL    string `json:"html_url"`
 		Dependency struct {
@@ -142,24 +201,26 @@ func parseEvent(source string, h http.Header, body []byte) (*Event, error) {
 		return nil, err
 	}
 	e := &Event{
-		Source:      source,
-		Forge:       "github",
-		Name:        name,
-		Action:      p.Action,
-		Repo:        p.Repository.FullName,
-		Owner:       p.Repository.Owner.Login,
-		Sender:      p.Sender.Login,
-		SenderBot:   p.Sender.Type == "Bot" || strings.HasSuffix(p.Sender.Login, "[bot]"),
-		Ref:         p.Ref,
-		Merged:      p.PullRequest.Merged,
-		Draft:       p.PullRequest.Draft,
-		ReviewState: p.Review.State,
-		Delivery:    h.Get("X-GitHub-Delivery"),
+		Source:       source,
+		Forge:        "github",
+		Name:         name,
+		Action:       p.Action,
+		Repo:         p.Repository.FullName,
+		Owner:        p.Repository.Owner.Login,
+		Sender:       p.Sender.Login,
+		SenderBot:    p.Sender.Type == "Bot" || strings.HasSuffix(p.Sender.Login, "[bot]"),
+		Ref:          p.Ref,
+		Merged:       p.PullRequest.Merged,
+		Draft:        p.PullRequest.Draft,
+		ReviewState:  p.Review.State,
+		Delivery:     h.Get("X-GitHub-Delivery"),
+		SenderURL:    p.Sender.HTMLURL,
+		SenderAvatar: p.Sender.AvatarURL,
 	}
-	var issueURL string
+	var issue ghTopic
 	if p.Issue != nil {
 		e.IsPull = new(p.Issue.PullRequest != nil)
-		issueURL = p.Issue.HTMLURL
+		issue = p.Issue.ghTopic
 	}
 	var alertURL string
 	if a := p.Alert; a != nil {
@@ -181,6 +242,23 @@ func parseEvent(source string, h http.Header, body []byte) (*Event, error) {
 	}
 	// The link goes to the most specific object in the payload.
 	e.URL = cmp.Or(p.Comment.HTMLURL, p.Review.HTMLURL, p.Discussion.HTMLURL, p.Release.HTMLURL,
-		alertURL, p.PullRequest.HTMLURL, issueURL, p.Compare, p.Repository.HTMLURL)
+		alertURL, p.PullRequest.HTMLURL, issue.HTMLURL, p.Compare, p.Forkee.HTMLURL, p.Repository.HTMLURL)
+	e.Title = cmp.Or(issue.Title, p.PullRequest.Title, p.Discussion.Title, p.Release.Name, p.Release.TagName, p.Forkee.FullName)
+	e.Number = cmp.Or(issue.Number, p.PullRequest.Number, p.Discussion.Number)
+	// The body is the text of the most specific object, also when that text
+	// is empty: a review with no text must not show the pull request text.
+	// GitHub always sends html_url on a comment and on a review.
+	switch {
+	case p.Comment.HTMLURL != "":
+		e.Body = p.Comment.Body
+	case p.Review.HTMLURL != "":
+		e.Body = p.Review.Body
+	default:
+		e.Body = cmp.Or(p.Release.Body, p.Discussion.Body, issue.Body, p.PullRequest.Body)
+	}
+	e.Push = Push{Size: len(p.Commits), Created: p.Created, Deleted: p.Deleted}
+	for _, c := range p.Commits {
+		e.Push.Commits = append(e.Push.Commits, Commit{ID: c.ID, Message: c.Message, URL: c.URL, Author: cmp.Or(c.Author.Username, c.Author.Name)})
+	}
 	return e, nil
 }
