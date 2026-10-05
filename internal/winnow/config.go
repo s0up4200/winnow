@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -78,8 +79,8 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		}
 		if r.Match == nil {
 			errs = append(errs, fmt.Errorf("route %s: match is missing", r.Name))
-		} else if *r.Match == (Matcher{}) && matchAll == nil {
-			matchAll = r
+		} else if matchAll == nil && slices.ContainsFunc(r.Match, func(m Matcher) bool { return reflect.ValueOf(m).IsZero() }) {
+			matchAll = r // a list with one empty matcher also matches every Event
 		}
 		if (len(r.To) > 0) == r.Drop {
 			errs = append(errs, fmt.Errorf("route %s: set exactly one of to: and drop:", r.Name))
@@ -95,9 +96,7 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 				errs = append(errs, fmt.Errorf("route %s: sink %q is not in sinks", r.Name, to))
 			}
 		}
-		if r.Match != nil && r.Match.Event != nil && !slices.Contains(knownEvents, *r.Match.Event) {
-			warns = append(warns, fmt.Sprintf("route %s: event %q is not a known Event name", r.Name, *r.Match.Event))
-		}
+		warns = append(warns, eventWarnings(r.Name, r.Match)...)
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sinks)) {
 		if !used[name] {
@@ -105,6 +104,20 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		}
 	}
 	return cfg, errs, warns
+}
+
+// eventWarnings returns a warning for each event pattern in ms, also inside
+// not:, that matches no known Event name. The patterns must be compiled.
+func eventWarnings(route string, ms Matchers) (warns []string) {
+	for _, m := range ms {
+		for _, p := range m.Event {
+			if !slices.ContainsFunc(knownEvents, func(k string) bool { return Patterns{p}.match(&k) }) {
+				warns = append(warns, fmt.Sprintf("route %s: event %q is not a known Event name", route, p))
+			}
+		}
+		warns = append(warns, eventWarnings(route, m.Not)...)
+	}
+	return warns
 }
 
 // expand returns the value of the environment variable VAR when v is one

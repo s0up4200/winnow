@@ -105,3 +105,37 @@ routes:
 		t.Errorf("errors = %v, want one error about sendr", errs)
 	}
 }
+
+func TestLoadChecksEachMatcher(t *testing.T) {
+	_, errs, warns := Load([]byte(`
+sinks:
+  a: { discord: https://discord.example.invalid/1 }
+routes:
+  - name: typos
+    match:
+      - { event: [push, pull_requests] }
+      - { event: "workflow_*", not: { event: isues } }
+    to: [a]
+  - name: not-only
+    match: { not: { sender: x } }
+    to: [a]
+  - name: all
+    match: [{ sender: x }, {}]
+    to: [a]
+  - name: late
+    match: {}
+    to: [a]
+`))
+	wantErrs := []string{"route late: route all before it matches every Event"}
+	wantWarns := []string{
+		`route typos: event "pull_requests" is not a known Event name`,
+		`route typos: event "isues" is not a known Event name`,
+	}
+	var gotErrs []string
+	for _, err := range errs {
+		gotErrs = append(gotErrs, err.Error())
+	}
+	if !reflect.DeepEqual(gotErrs, wantErrs) || !reflect.DeepEqual(warns, wantWarns) {
+		t.Errorf("errors = %q, warnings = %q\nwant errors %q, warnings %q", gotErrs, warns, wantErrs, wantWarns)
+	}
+}
