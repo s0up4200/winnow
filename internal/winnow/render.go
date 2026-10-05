@@ -13,6 +13,8 @@ const (
 	colorClosed = 0xcf222e
 	colorMerged = 0x8250df
 	colorStar   = 0xe3b341
+	// colorSecurity is the embed color of a security Event.
+	colorSecurity = 0xE36209
 )
 
 // The Discord limits of an embed, in characters.
@@ -49,6 +51,14 @@ func render(e *Event) message {
 	case "watch":
 		em = titled(e, "New star")
 		em.Color = colorStar
+	case "dependabot_alert":
+		em = renderAlert(e, "Dependabot alert")
+	case "code_scanning_alert":
+		em = renderAlert(e, "Code scanning alert")
+	case "secret_scanning_alert":
+		em = renderAlert(e, "Secret scanning alert")
+	case "repository_advisory":
+		em = renderAlert(e, "Repository advisory")
 	default:
 		em = fallback(e)
 	}
@@ -154,6 +164,38 @@ func renderPush(e *Event) embed {
 	}
 	em.Description = strings.Join(lines, "\n")
 	return em
+}
+
+// renderAlert returns the embed of a security Event:
+// "[repo] <kind> <action>: #n summary", and one description line for each
+// Alert field that is set. An Event with no Alert gets the Fallback message.
+func renderAlert(e *Event, kind string) embed {
+	a := e.Alert
+	if a == nil {
+		return fallback(e)
+	}
+	title := "[" + e.Repo + "] " + kind + " " + e.Action + ": "
+	if a.Number != 0 {
+		title += "#" + strconv.Itoa(a.Number) + " "
+	}
+	var lines []string
+	add := func(label, value string) {
+		if value != "" {
+			lines = append(lines, label+": "+value)
+		}
+	}
+	add("Severity", a.Severity)
+	if a.Package != "" {
+		add("Package", a.Package+" ("+a.Ecosystem+")")
+	}
+	add("Patched in", a.Patched)
+	add("Validity", a.Validity)
+	return embed{
+		Title:       title + a.Summary,
+		URL:         e.URL,
+		Description: strings.Join(lines, "\n"),
+		Color:       colorSecurity,
+	}
 }
 
 // words changes an action such as review_requested to "review requested".

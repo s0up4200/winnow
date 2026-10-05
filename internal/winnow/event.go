@@ -36,7 +36,8 @@ type Event struct {
 	Body         string // text of the most specific object, for example the comment
 	SenderURL    string
 	SenderAvatar string
-	Push         Push // push only
+	Push         Push   // push only
+	Alert        *Alert // security Events
 }
 
 // Push is the data of a push Event.
@@ -53,6 +54,18 @@ type Commit struct {
 	Message string
 	URL     string
 	Author  string
+}
+
+// Alert holds the data of a security Event that its Renderer shows. A field
+// that the Event name does not have is empty.
+type Alert struct {
+	Number    int    // 0 on a repository advisory
+	Summary   string // what the alert is about
+	Severity  string
+	Package   string // dependabot_alert
+	Ecosystem string // dependabot_alert, for example npm
+	Patched   string // dependabot_alert: the first version with a fix
+	Validity  string // secret_scanning_alert, for example active
 }
 
 // NameAction returns "<event>.<action>", or only the Event name when the
@@ -142,9 +155,38 @@ type ghPayload struct {
 			Username string `json:"username"`
 		} `json:"author"`
 	} `json:"commits"`
-	Created bool   `json:"created"`
-	Deleted bool   `json:"deleted"`
-	Alert   ghLink `json:"alert"`
+	Created bool `json:"created"`
+	Deleted bool `json:"deleted"`
+	Alert   *struct {
+		Number     int    `json:"number"`
+		HTMLURL    string `json:"html_url"`
+		Dependency struct {
+			Package struct {
+				Ecosystem string `json:"ecosystem"`
+				Name      string `json:"name"`
+			} `json:"package"`
+		} `json:"dependency"`
+		SecurityAdvisory struct {
+			Summary  string `json:"summary"`
+			Severity string `json:"severity"`
+		} `json:"security_advisory"`
+		SecurityVulnerability struct {
+			FirstPatchedVersion struct {
+				Identifier string `json:"identifier"`
+			} `json:"first_patched_version"`
+		} `json:"security_vulnerability"`
+		Rule struct {
+			Severity    string `json:"severity"`
+			Description string `json:"description"`
+		} `json:"rule"`
+		SecretTypeDisplayName string `json:"secret_type_display_name"`
+		Validity              string `json:"validity"`
+	} `json:"alert"`
+	RepositoryAdvisory *struct {
+		HTMLURL  string `json:"html_url"`
+		Summary  string `json:"summary"`
+		Severity string `json:"severity"`
+	} `json:"repository_advisory"`
 }
 
 // parseEvent turns a delivery into an Event. A GitHub ping becomes an Event
@@ -180,9 +222,27 @@ func parseEvent(source string, h http.Header, body []byte) (*Event, error) {
 		e.IsPull = new(p.Issue.PullRequest != nil)
 		issue = p.Issue.ghTopic
 	}
+	var alertURL string
+	if a := p.Alert; a != nil {
+		alertURL = a.HTMLURL
+		// Each alert Event name fills only one of the sources in cmp.Or.
+		e.Alert = &Alert{
+			Number:    a.Number,
+			Summary:   cmp.Or(a.SecurityAdvisory.Summary, a.Rule.Description, a.SecretTypeDisplayName),
+			Severity:  cmp.Or(a.SecurityAdvisory.Severity, a.Rule.Severity),
+			Package:   a.Dependency.Package.Name,
+			Ecosystem: a.Dependency.Package.Ecosystem,
+			Patched:   a.SecurityVulnerability.FirstPatchedVersion.Identifier,
+			Validity:  a.Validity,
+		}
+	}
+	if a := p.RepositoryAdvisory; a != nil {
+		alertURL = a.HTMLURL
+		e.Alert = &Alert{Summary: a.Summary, Severity: a.Severity}
+	}
 	// The link goes to the most specific object in the payload.
 	e.URL = cmp.Or(p.Comment.HTMLURL, p.Review.HTMLURL, p.Discussion.HTMLURL, p.Release.HTMLURL,
-		p.Alert.HTMLURL, p.PullRequest.HTMLURL, issue.HTMLURL, p.Compare, p.Forkee.HTMLURL, p.Repository.HTMLURL)
+		alertURL, p.PullRequest.HTMLURL, issue.HTMLURL, p.Compare, p.Forkee.HTMLURL, p.Repository.HTMLURL)
 	e.Title = cmp.Or(issue.Title, p.PullRequest.Title, p.Discussion.Title, p.Release.Name, p.Release.TagName, p.Forkee.FullName)
 	e.Number = cmp.Or(issue.Number, p.PullRequest.Number, p.Discussion.Number)
 	// The body is the text of the most specific object, also when that text

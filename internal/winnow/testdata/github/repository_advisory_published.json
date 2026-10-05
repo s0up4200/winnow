@@ -1,0 +1,17 @@
+{
+  "action": "published",
+  "repository": {
+    "full_name": "autobrr/qui",
+    "html_url": "https://github.example.invalid/autobrr/qui",
+    "owner": {
+      "login": "autobrr",
+      "type": "Organization"
+    }
+  },
+  "repository_advisory": {
+    "cve_id": null,
+    "html_url": "https://github.example.invalid/autobrr/qui/security/advisories/GHSA-abcd-1234-efgh",
+    "summary": "Path traversal in upload handler",
+    "severity": "high"
+  }
+}
