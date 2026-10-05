@@ -125,6 +125,27 @@ func signedDelivery(source, event string, body []byte) *http.Request {
 	return req
 }
 
+// forgejoDelivery returns a Forgejo delivery to /hook/<source> with correct
+// signatures for testSecret. event is X-Forgejo-Event and typ is
+// X-Forgejo-Event-Type. Like Forgejo, it also sends X-GitHub-Event.
+func forgejoDelivery(source, event, typ string, body []byte) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/hook/"+source, bytes.NewReader(body))
+	sig := sign(testSecret, body)
+	for k, v := range map[string]string{
+		"Content-Type":         "application/json",
+		"X-Forgejo-Event":      event,
+		"X-Forgejo-Event-Type": typ,
+		"X-Forgejo-Delivery":   testDelivery,
+		"X-Forgejo-Signature":  strings.TrimPrefix(sig, "sha256="),
+		"X-Hub-Signature-256":  sig,
+		"X-GitHub-Event":       event,
+		"X-GitHub-Event-Type":  typ,
+	} {
+		req.Header.Set(k, v)
+	}
+	return req
+}
+
 // sign returns the X-Hub-Signature-256 value of body.
 func sign(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))

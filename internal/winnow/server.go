@@ -62,11 +62,11 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot read body", http.StatusBadRequest)
 		return
 	}
-	if !validSignature(src.Secret, body, r.Header.Get("X-Hub-Signature-256")) {
+	if !validSignature(src.Secret, body, r.Header) {
 		http.Error(w, "bad signature", http.StatusUnauthorized)
 		return
 	}
-	e, err := parseEvent(name, r.Header, body)
+	e, err := parseEvent(name, s.cfg.Bots, r.Header, body)
 	if err != nil {
 		http.Error(w, "cannot parse delivery: "+err.Error(), http.StatusBadRequest)
 		return

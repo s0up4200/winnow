@@ -18,6 +18,7 @@ type Config struct {
 	Sources map[string]Source     `yaml:"sources"`
 	Sinks   map[string]SinkConfig `yaml:"sinks"`
 	Routes  []Route               `yaml:"routes"`
+	Bots    []string              `yaml:"bots"` // logins of Bot senders, compared without case
 }
 
 // Source is one webhook endpoint, /hook/<name>, with its own secret.
