@@ -1,0 +1,66 @@
+{
+  "action": "created",
+  "issue": {
+    "id": 103,
+    "number": 3,
+    "title": "Crash on empty config",
+    "body": "Steps:\n1. Start with an empty file.\n2. It panics.",
+    "html_url": "https://example.invalid/soup/winnow-test/issues/3",
+    "state": "open",
+    "user": {
+      "id": 2,
+      "login": "alice",
+      "username": "alice",
+      "full_name": "",
+      "email": "alice@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/alice",
+      "html_url": "https://example.invalid/alice"
+    },
+    "assignee": null,
+    "assignees": null,
+    "labels": [],
+    "pull_request": null
+  },
+  "comment": {
+    "id": 900,
+    "html_url": "https://example.invalid/soup/winnow-test/issues/3#issuecomment-900",
+    "user": {
+      "id": 1,
+      "login": "soup",
+      "username": "soup",
+      "full_name": "",
+      "email": "soup@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/soup",
+      "html_url": "https://example.invalid/soup"
+    },
+    "body": "Thanks, I can reproduce it.",
+    "created_at": "2026-10-05T12:00:00Z",
+    "updated_at": "2026-10-05T12:00:00Z"
+  },
+  "repository": {
+    "id": 10,
+    "name": "winnow-test",
+    "full_name": "soup/winnow-test",
+    "private": false,
+    "html_url": "https://example.invalid/soup/winnow-test",
+    "owner": {
+      "id": 1,
+      "login": "soup",
+      "username": "soup",
+      "full_name": "",
+      "email": "soup@noreply.example.invalid",
+      "avatar_url": "https://example.invalid/avatars/soup",
+      "html_url": "https://example.invalid/soup"
+    }
+  },
+  "sender": {
+    "id": 1,
+    "login": "soup",
+    "username": "soup",
+    "full_name": "",
+    "email": "soup@noreply.example.invalid",
+    "avatar_url": "https://example.invalid/avatars/soup",
+    "html_url": "https://example.invalid/soup"
+  },
+  "is_pull": false
+}

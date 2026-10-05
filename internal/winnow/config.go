@@ -19,6 +19,7 @@ type Config struct {
 	Users   map[string]string     `yaml:"users"` // the User map: lowercase forge login to Discord user ID
 	Sinks   map[string]SinkConfig `yaml:"sinks"`
 	Routes  []Route               `yaml:"routes"`
+	Bots    []string              `yaml:"bots"` // logins of Bot senders, compared without case
 }
 
 // Source is one webhook endpoint, /hook/<name>, with its own secret.

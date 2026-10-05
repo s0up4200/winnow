@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -27,7 +28,7 @@ type Event struct {
 	ReviewState *string // review
 	IsPull      *bool   // issue or comment on an issue: true on a pull request
 
-	Delivery string // X-GitHub-Delivery
+	Delivery string // X-GitHub-Delivery or X-Forgejo-Delivery
 	URL      string // link to the main object
 
 	// The Renderers read the fields below. Rules cannot match them.
@@ -112,13 +113,18 @@ type ghLink struct {
 	HTMLURL string `json:"html_url"`
 }
 
-// ghPayload holds the fields of a GitHub payload that winnow reads.
+// ghPayload holds the fields of a GitHub payload that winnow reads. A
+// Forgejo payload has the same JSON shape for most fields, so winnow reads
+// it into the same struct. The comments name the fields that only Forgejo
+// sends.
 type ghPayload struct {
-	Action     string  `json:"action"`
-	Ref        *string `json:"ref"`
-	Compare    string  `json:"compare"`
-	Sender     ghUser  `json:"sender"`
-	Repository struct {
+	Action       string  `json:"action"`
+	Ref          *string `json:"ref"`
+	Compare      string  `json:"compare"`
+	CompareURL   string  `json:"compare_url"`   // Forgejo push
+	TotalCommits int     `json:"total_commits"` // Forgejo push: can be more than len(Commits)
+	Sender       ghUser  `json:"sender"`
+	Repository   struct {
 		FullName string `json:"full_name"`
 		HTMLURL  string `json:"html_url"`
 		Owner    ghUser `json:"owner"`
@@ -134,7 +140,9 @@ type ghPayload struct {
 	} `json:"issue"`
 	Review struct {
 		ghText
-		State *string `json:"state"`
+		State   *string `json:"state"`
+		Type    string  `json:"type"`    // Forgejo: the X-Forgejo-Event-Type of the review
+		Content string  `json:"content"` // Forgejo: the review text
 	} `json:"review"`
 	Comment    ghText  `json:"comment"`
 	Discussion ghTopic `json:"discussion"`
@@ -194,10 +202,27 @@ type ghPayload struct {
 	Assignee          ghUser `json:"assignee"`
 }
 
+// forgejoReviews maps the X-Forgejo-Event-Type of a Forgejo review to the
+// GitHub review state. Winnow compares the full name, because a prefix test
+// on pull_request_review_ also matches pull_request_review_request.
+var forgejoReviews = map[string]string{
+	"pull_request_review_approved": "approved",
+	"pull_request_review_rejected": "changes_requested",
+	"pull_request_review_comment":  "commented",
+}
+
 // parseEvent turns a delivery into an Event. A GitHub ping becomes an Event
-// with the name ping.
-func parseEvent(source string, h http.Header, body []byte) (*Event, error) {
-	name := h.Get("X-GitHub-Event")
+// with the name ping. A sender is a Bot sender also when its login is in
+// bots.
+func parseEvent(source string, bots []string, h http.Header, body []byte) (*Event, error) {
+	forge, name, delivery := "github", h.Get("X-GitHub-Event"), h.Get("X-GitHub-Delivery")
+	// Forgejo also sends X-GitHub-Event, so only X-Forgejo-Event shows the
+	// forge. The Event name comes from X-Forgejo-Event, not from
+	// X-Forgejo-Event-Type: X-Forgejo-Event has the GitHub names, for
+	// example pull_request for pull_request_sync.
+	if fe := h.Get("X-Forgejo-Event"); fe != "" {
+		forge, name, delivery = "forgejo", fe, h.Get("X-Forgejo-Delivery")
+	}
 	if name == "" {
 		return nil, errors.New("X-GitHub-Event header is missing")
 	}
@@ -206,19 +231,20 @@ func parseEvent(source string, h http.Header, body []byte) (*Event, error) {
 		return nil, err
 	}
 	e := &Event{
-		Source:       source,
-		Forge:        "github",
-		Name:         name,
-		Action:       p.Action,
-		Repo:         p.Repository.FullName,
-		Owner:        p.Repository.Owner.Login,
-		Sender:       p.Sender.Login,
-		SenderBot:    p.Sender.Type == "Bot" || strings.HasSuffix(p.Sender.Login, "[bot]"),
+		Source: source,
+		Forge:  forge,
+		Name:   name,
+		Action: p.Action,
+		Repo:   p.Repository.FullName,
+		Owner:  p.Repository.Owner.Login,
+		Sender: p.Sender.Login,
+		SenderBot: p.Sender.Type == "Bot" || strings.HasSuffix(p.Sender.Login, "[bot]") ||
+			slices.ContainsFunc(bots, func(b string) bool { return strings.EqualFold(b, p.Sender.Login) }),
 		Ref:          p.Ref,
 		Merged:       p.PullRequest.Merged,
 		Draft:        p.PullRequest.Draft,
 		ReviewState:  p.Review.State,
-		Delivery:     h.Get("X-GitHub-Delivery"),
+		Delivery:     delivery,
 		SenderURL:    p.Sender.HTMLURL,
 		SenderAvatar: p.Sender.AvatarURL,
 	}
@@ -253,7 +279,7 @@ func parseEvent(source string, h http.Header, body []byte) (*Event, error) {
 	}
 	// The link goes to the most specific object in the payload.
 	e.URL = cmp.Or(p.Comment.HTMLURL, p.Review.HTMLURL, p.Discussion.HTMLURL, p.Release.HTMLURL,
-		alertURL, p.PullRequest.HTMLURL, issue.HTMLURL, p.Compare, p.Forkee.HTMLURL, p.Repository.HTMLURL)
+		alertURL, p.PullRequest.HTMLURL, issue.HTMLURL, p.Compare, p.CompareURL, p.Forkee.HTMLURL, p.Repository.HTMLURL)
 	e.Title = cmp.Or(issue.Title, p.PullRequest.Title, p.Discussion.Title, p.Release.Name, p.Release.TagName, p.Forkee.FullName)
 	e.Number = cmp.Or(issue.Number, p.PullRequest.Number, p.Discussion.Number)
 	// The body is the text of the most specific object, also when that text
@@ -267,9 +293,33 @@ func parseEvent(source string, h http.Header, body []byte) (*Event, error) {
 	default:
 		e.Body = cmp.Or(p.Release.Body, p.Discussion.Body, issue.Body, p.PullRequest.Body)
 	}
-	e.Push = Push{Size: len(p.Commits), Created: p.Created, Deleted: p.Deleted}
+	e.Push = Push{Size: cmp.Or(p.TotalCommits, len(p.Commits)), Created: p.Created, Deleted: p.Deleted}
 	for _, c := range p.Commits {
 		e.Push.Commits = append(e.Push.Commits, Commit{ID: c.ID, Message: c.Message, URL: c.URL, Author: cmp.Or(c.Author.Username, c.Author.Name)})
 	}
+	if forge == "forgejo" {
+		mapForgejo(e, h.Get("X-Forgejo-Event-Type"), &p)
+	}
 	return e, nil
+}
+
+// mapForgejo changes the Forgejo names in e that have an exact GitHub twin
+// to the GitHub names. Every other name stays as it is, for example the
+// action label_updated.
+func mapForgejo(e *Event, typ string, p *ghPayload) {
+	if _, ok := forgejoReviews[typ]; ok {
+		// A Forgejo review has no link of its own, so the link stays on
+		// the pull request.
+		e.Name, e.Action, e.Body = "pull_request_review", "submitted", p.Review.Content
+		if state, ok := forgejoReviews[p.Review.Type]; ok {
+			e.ReviewState = new(state)
+		}
+		return
+	}
+	switch {
+	case e.Action == "synchronized":
+		e.Action = "synchronize"
+	case e.Name == "release" && e.Action == "updated":
+		e.Action = "edited"
+	}
 }
