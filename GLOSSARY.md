@@ -16,6 +16,10 @@ _Avoid_: event type, kind
 A sender that GitHub marks as a bot, whose login ends in `[bot]`, or whose login is in the bot list of the configuration.
 _Avoid_: automated user, app
 
+**Rule**:
+A condition on the fields of an Event, written as a matcher in the configuration.
+_Avoid_: filter, expression
+
 **Route**:
 One entry in the ordered route list. It holds Rules and either the Sinks that get a matching Event, or a drop. The first Route whose Rules match an Event decides what happens to it.
 _Avoid_: destination, target, filter
