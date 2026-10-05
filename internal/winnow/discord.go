@@ -42,11 +42,6 @@ type allowedMentions struct {
 	Users []string `json:"users,omitempty"`
 }
 
-// retryBase is the wait before the first retry after a server error or a
-// network error. Each next retry waits twice as long. Tests set a few
-// milliseconds.
-var retryBase = time.Second
-
 // maxAttempts is the largest number of sends for one message, 429 replies
 // included.
 const maxAttempts = 5
@@ -61,10 +56,13 @@ type discordSender struct {
 	url    string
 	client *http.Client
 	next   time.Time // no send before this time, because the rate limit bucket is empty
+	// retryBase is the wait before the first retry after a server error or
+	// a network error. Each next retry waits twice as long.
+	retryBase time.Duration
 }
 
-func newDiscordSender(webhookURL string) *discordSender {
-	return &discordSender{url: webhookURL, client: &http.Client{Timeout: 10 * time.Second}}
+func newDiscordSender(sc SinkConfig) *discordSender {
+	return &discordSender{url: sc.Discord, client: &http.Client{Timeout: 10 * time.Second}, retryBase: cmp.Or(sc.retryBase, time.Second)}
 }
 
 // send posts msg and retries it after a server error or a network error. When
@@ -95,9 +93,9 @@ func (d *discordSender) send(ctx context.Context, msg message) error {
 				RetryAfter float64 `json:"retry_after"`
 			}
 			_ = json.Unmarshal(reply, &r)
-			wait = cmp.Or(seconds(r.RetryAfter), retryBase)
+			wait = cmp.Or(seconds(r.RetryAfter), d.retryBase)
 		case err != nil || status >= 500:
-			wait = retryBase << errs
+			wait = d.retryBase << errs
 			errs++
 		default:
 			return f

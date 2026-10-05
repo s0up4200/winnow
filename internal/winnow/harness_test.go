@@ -22,13 +22,12 @@ import (
 // test configuration this secret.
 const testSecret = "test-secret"
 
+// testRetryBase is the retry base of each Discord sender in a test, so that
+// retries wait a few milliseconds, not seconds.
+const testRetryBase = 10 * time.Millisecond
+
 // testDelivery is the delivery ID that signedDelivery sends.
 const testDelivery = "72d3162e-cc78-11e3-81ab-4c9367dc0958"
-
-func init() {
-	// Retries in tests wait a few milliseconds, not seconds.
-	retryBase = 10 * time.Millisecond
-}
 
 // harness is the HTTP handler of winnow, built from a YAML configuration,
 // with each Sink URL pointed at one fake Discord.
@@ -64,7 +63,8 @@ func (h *harness) script(rs ...reply) {
 }
 
 // newHarness loads config and builds the handler. It replaces the discord URL
-// of each Sink with the URL of a fake Discord. The fake Discord records each
+// of each Sink with the URL of a fake Discord, and sets testRetryBase as the
+// retry base of each Sink. The fake Discord records each
 // request on h.discord and replies 204, or the next reply from h.script. The logs go to a buffer as JSON.
 func newHarness(t *testing.T, config string) *harness {
 	t.Helper()
@@ -100,7 +100,7 @@ func newHarness(t *testing.T, config string) *harness {
 	}))
 	t.Cleanup(fake.Close)
 	for name, s := range cfg.Sinks {
-		s.Discord = fake.URL + "/" + name
+		s.Discord, s.retryBase = fake.URL+"/"+name, testRetryBase
 		cfg.Sinks[name] = s
 	}
 	h.handler = New(cfg, slog.New(slog.NewJSONHandler(h.logs, nil)))

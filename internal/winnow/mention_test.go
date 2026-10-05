@@ -51,6 +51,8 @@ func TestMentions(t *testing.T) {
 			return bytes.Replace(reviewRequested(t), []byte(`"review_requested"`), []byte(`"edited"`), 1)
 		}, false},
 		{"a Fallback message never pings", "pull_request_review_thread", reviewRequested, false},
+		// The payload has no alert, so the Renderer gives the Fallback message.
+		{"a security Event with no alert never pings", "code_scanning_alert", assigned("octocat"), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

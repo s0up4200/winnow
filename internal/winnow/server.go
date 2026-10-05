@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"sync"
 )
 
 // maxBody is the largest delivery that winnow reads. GitHub sends at most
@@ -19,6 +20,8 @@ type Server struct {
 	cfg   *Config
 	sinks map[string]*sink
 	log   *slog.Logger
+	wg    sync.WaitGroup     // the Sink workers
+	mu    sync.RWMutex       // hook reads drain and enqueues under the read lock
 	drain chan struct{}      // closed when Shutdown starts
 	stop  context.CancelFunc // stops the sends when the drain time ends
 }
@@ -28,14 +31,16 @@ func New(cfg *Config, log *slog.Logger) *Server {
 	ctx, stop := context.WithCancel(context.Background())
 	s := &Server{ServeMux: http.NewServeMux(), cfg: cfg, sinks: map[string]*sink{}, log: log, drain: make(chan struct{}), stop: stop}
 	for name, sc := range cfg.Sinks {
-		discord := newDiscordSender(sc.Discord)
-		s.sinks[name] = startSink(ctx, s.drain, name, func(ctx context.Context, e *Event) error {
+		discord := newDiscordSender(sc)
+		sk := &sink{name: name, queue: make(chan entry, queueSize), log: log, send: func(ctx context.Context, e *Event) error {
 			msg := render(e, cfg.Users)
 			if !sc.Mentions { // only a Sink with mentions: true keeps the ping
 				msg.Content, msg.AllowedMentions.Users = "", nil
 			}
 			return discord.send(ctx, msg)
-		}, log)
+		}}
+		s.sinks[name] = sk
+		s.wg.Go(func() { sk.run(ctx, s.drain) })
 	}
 	// The pattern has no method, so that an unknown Source gets 404 before
 	// a wrong method gets 405.
@@ -51,14 +56,14 @@ func New(cfg *Config, log *slog.Logger) *Server {
 // Shutdown sends the Events left in the Sink queues and returns when the
 // queues are empty. When ctx ends first, the sends stop and each Event that
 // is not sent gets a failed delivery line with reason=shutdown. Call it after
-// the HTTP server stops, because the workers do not read an Event that comes
-// after the drain.
+// the HTTP server stops. A handler that still runs after the drain starts
+// does not enqueue its Event, but logs it with reason=shutdown.
 func (s *Server) Shutdown(ctx context.Context) {
+	s.mu.Lock()
 	close(s.drain)
+	s.mu.Unlock()
 	context.AfterFunc(ctx, s.stop)
-	for _, sk := range s.sinks {
-		<-sk.done
-	}
+	s.wg.Wait()
 }
 
 // hook receives one delivery. The order of the checks is part of the
@@ -115,13 +120,22 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	// Under the read lock, the drain cannot start between the check and the
+	// enqueue, so a worker that stopped never misses an Event.
+	s.mu.RLock()
 	s.logDecision(e, "sent", route.Name, route.To)
 	for _, to := range route.To {
-		d := delivery{event: e, route: route.Name}
-		if !s.sinks[to].enqueue(d) {
-			s.sinks[to].logFailure(d, &failure{reason: "queue_full"})
+		en := entry{event: e, route: route.Name}
+		select {
+		case <-s.drain:
+			s.sinks[to].logFailure(en, &failure{reason: "shutdown"})
+		default:
+			if !s.sinks[to].enqueue(en) {
+				s.sinks[to].logFailure(en, &failure{reason: "queue_full"})
+			}
 		}
 	}
+	s.mu.RUnlock()
 	w.WriteHeader(http.StatusAccepted)
 }
 
