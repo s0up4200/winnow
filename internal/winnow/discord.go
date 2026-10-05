@@ -18,8 +18,10 @@ type message struct {
 }
 
 type embed struct {
-	Title string `json:"title"`
-	URL   string `json:"url,omitempty"`
+	Title       string `json:"title"`
+	URL         string `json:"url,omitempty"`
+	Description string `json:"description,omitempty"`
+	Color       int    `json:"color,omitzero"`
 }
 
 // allowedMentions controls which mentions in a message ping. An empty Parse

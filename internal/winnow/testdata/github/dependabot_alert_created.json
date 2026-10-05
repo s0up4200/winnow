@@ -1,0 +1,34 @@
+{
+  "action": "created",
+  "repository": {
+    "full_name": "autobrr/qui",
+    "html_url": "https://github.example.invalid/autobrr/qui",
+    "owner": {
+      "login": "autobrr",
+      "type": "Organization"
+    }
+  },
+  "sender": {
+    "login": "github",
+    "type": "Organization"
+  },
+  "alert": {
+    "number": 20,
+    "html_url": "https://github.example.invalid/autobrr/qui/security/dependabot/20",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "semver"
+      }
+    },
+    "security_advisory": {
+      "summary": "semver vulnerable to Regular Expression Denial of Service",
+      "severity": "medium"
+    },
+    "security_vulnerability": {
+      "first_patched_version": {
+        "identifier": "7.5.2"
+      }
+    }
+  }
+}
