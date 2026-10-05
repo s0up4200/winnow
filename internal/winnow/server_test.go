@@ -42,6 +42,7 @@ func TestDeliveryBecomesFallbackMessage(t *testing.T) {
 		t.Errorf("sink = %q, want qui", got.Sink)
 	}
 	assertJSON(t, got.Body, `{
+		`+githubPoster+`,
 		"embeds": [{
 			"title": "label.created on autobrr/qui by s0up4200",
 			"url": "https://github.example.invalid/autobrr/qui"

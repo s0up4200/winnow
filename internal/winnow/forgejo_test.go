@@ -19,17 +19,22 @@ routes:
     to: [all]
 `
 
-// The embed authors of the senders in the Forgejo fixtures.
+// forgejoPoster is the poster of each message about a Forgejo Event.
+const forgejoPoster = `"username": "Forgejo", "avatar_url": "https://forgejo.org/favicon.png"`
+
+// The embed authors of the senders in the Forgejo fixtures. Each Forgejo
+// sender gets an identicon, because Discord cannot load an avatar from a
+// Forgejo that is not public.
 const (
 	soupAuthor = `"author": {
 	"name": "soup",
 	"url": "https://example.invalid/soup",
-	"icon_url": "https://forgejo.org/favicon.png"
+	"icon_url": "https://www.gravatar.com/avatar/9014fac8184d7ba9e1dcd80b8c1e1aa2906af8a01fc1e6e9092e575eabf7b80d?d=identicon&s=128"
 }`
 	aliceAuthor = `"author": {
 	"name": "alice",
 	"url": "https://example.invalid/alice",
-	"icon_url": "https://forgejo.org/favicon.png"
+	"icon_url": "https://www.gravatar.com/avatar/2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90?d=identicon&s=128"
 }`
 )
 
@@ -67,25 +72,21 @@ func TestForgejoRenderers(t *testing.T) {
 		}`},
 		{"synchronized becomes synchronize", "pull_request", "pull_request_sync", fixture(t, "forgejo/pull_request_sync-synchronized"), "pull_request.synchronize", `{` + aliceAuthor + `,
 			"title": "[soup/winnow-test] Pull request synchronize: #5 Add Forgejo support",
-			"url": "https://example.invalid/soup/winnow-test/pulls/5",
-			"description": "Parses X-Forgejo-Event-Type."
+			"url": "https://example.invalid/soup/winnow-test/pulls/5"
 		}`},
 		{"pull request merged", "pull_request", "pull_request", fixture(t, "forgejo/pull_request-closed-merged"), "pull_request.closed", `{` + soupAuthor + `,
 			"title": "[soup/winnow-test] Pull request merged: #5 Add Forgejo support",
 			"url": "https://example.invalid/soup/winnow-test/pulls/5",
-			"description": "Parses X-Forgejo-Event-Type.",
 			"color": 8540383
 		}`},
 		{"review request stays a pull request Event", "pull_request", "pull_request_review_request",
 			bytes.Replace(opened, []byte(`"action": "opened"`), []byte(`"action": "review_requested"`), 1), "pull_request.review_requested", `{` + aliceAuthor + `,
 			"title": "[soup/winnow-test] Pull request review requested: #5 Add Forgejo support",
-			"url": "https://example.invalid/soup/winnow-test/pulls/5",
-			"description": "Parses X-Forgejo-Event-Type."
+			"url": "https://example.invalid/soup/winnow-test/pulls/5"
 		}`},
 		{"label_updated stays as it is", "pull_request", "pull_request_label", fixture(t, "forgejo/pull_request_label-label_updated"), "pull_request.label_updated", `{` + soupAuthor + `,
 			"title": "[soup/winnow-test] Pull request label updated: #5 Add Forgejo support",
-			"url": "https://example.invalid/soup/winnow-test/pulls/5",
-			"description": "Parses X-Forgejo-Event-Type."
+			"url": "https://example.invalid/soup/winnow-test/pulls/5"
 		}`},
 		{"issue opened", "issues", "issues", fixture(t, "forgejo/issues-opened"), "issues.opened", `{` + aliceAuthor + `,
 			"title": "[soup/winnow-test] Issue opened: #3 Crash on empty config",
@@ -127,8 +128,7 @@ func TestForgejoRenderers(t *testing.T) {
 		}`},
 		{"release updated becomes edited", "release", "release", fixture(t, "forgejo/release-updated"), "release.edited", `{` + soupAuthor + `,
 			"title": "[soup/winnow-test] Release edited: v1.0.0",
-			"url": "https://example.invalid/soup/winnow-test/releases/tag/v1.0.0",
-			"description": "First release.\n\nEdited."
+			"url": "https://example.invalid/soup/winnow-test/releases/tag/v1.0.0"
 		}`},
 	}
 	for _, tt := range tests {
@@ -137,7 +137,7 @@ func TestForgejoRenderers(t *testing.T) {
 			if got := h.do(forgejoDelivery("forgejo", tt.event, tt.typ, tt.body)).Code; got != http.StatusAccepted {
 				t.Fatalf("status = %d, want 202", got)
 			}
-			assertJSON(t, h.waitDiscord().Body, `{"embeds": [`+tt.want+`], "allowed_mentions": {"parse": []}}`)
+			assertJSON(t, h.waitDiscord().Body, `{`+forgejoPoster+`, "embeds": [`+tt.want+`], "allowed_mentions": {"parse": []}}`)
 			d := h.decision()
 			if d["event"] != tt.wantEv || d["delivery"] != testDelivery {
 				t.Errorf("decision event = %v, delivery = %v, want %s and %s", d["event"], d["delivery"], tt.wantEv, testDelivery)

@@ -1,10 +1,21 @@
 package winnow
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
+)
+
+// The icons of the posters. The GitHub favicon is transparent, so GitHub
+// posts with the avatar of the GitHub organization.
+const (
+	githubIcon  = "https://avatars.githubusercontent.com/u/9919?s=128"
+	forgejoIcon = "https://forgejo.org/favicon.png"
 )
 
 // The embed colors, from the GitHub color scheme.
@@ -25,9 +36,10 @@ const (
 
 // render turns an Event into one Discord message. It selects the Renderer by
 // the Event name. An Event name with no Renderer, or a Renderer that returns
-// the zero embed, gets the Fallback message. The message pings the target of
-// e when users holds the target and the target is not the sender. A Fallback
-// message never pings.
+// the zero embed, gets the Fallback message. The Poster of each message is
+// the forge of the Event. The message pings the target of e when users holds
+// the target and the target is not the sender. A Fallback message never
+// pings.
 func render(e *Event, users map[string]string) message {
 	var em embed
 	switch e.Name {
@@ -69,7 +81,10 @@ func render(e *Event, users map[string]string) message {
 	}
 	em.Title = cut(em.Title, maxTitle)
 	em.Description = cut(em.Description, maxDescription)
-	msg := message{Embeds: []embed{em}}
+	msg := message{Username: "GitHub", AvatarURL: githubIcon, Embeds: []embed{em}}
+	if e.Forge == "forgejo" {
+		msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
+	}
 	if id, ok := users[strings.ToLower(e.Target)]; ok && ping && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
 		msg.Content = "<@" + id + ">"
 		msg.AllowedMentions.Users = []string{id}
@@ -85,7 +100,8 @@ func fallback(e *Event) embed {
 }
 
 // titled returns an embed with the sender as author, the title
-// "[repo] <kind>: #n title", the link to the main object, and the body.
+// "[repo] <kind>: #n title", the link to the main object, and the excerpt
+// of the body.
 func titled(e *Event, kind string) embed {
 	title := "[" + e.Repo + "] " + kind
 	switch {
@@ -95,11 +111,61 @@ func titled(e *Event, kind string) embed {
 		title += ": " + e.Title
 	}
 	return embed{
-		Author:      embedAuthor{Name: e.Sender, URL: e.SenderURL, IconURL: e.SenderAvatar},
+		Author:      embedAuthor{Name: e.Sender, URL: e.SenderURL, IconURL: avatar(e)},
 		Title:       title,
 		URL:         e.URL,
-		Description: e.Body,
+		Description: excerpt(e),
 	}
+}
+
+// avatar returns the icon of the sender of e. A Forgejo sender, or a sender
+// with no avatar, gets an identicon, because Discord cannot load an avatar
+// from a Forgejo that is not public. An Event with no sender has no icon.
+func avatar(e *Event) string {
+	if e.Sender == "" {
+		return ""
+	}
+	if e.Forge == "github" && e.SenderAvatar != "" {
+		return e.SenderAvatar
+	}
+	sum := sha256.Sum256([]byte(strings.ToLower(e.Sender)))
+	return "https://www.gravatar.com/avatar/" + hex.EncodeToString(sum[:]) + "?d=identicon&s=128"
+}
+
+// excerpt returns the clean body of e, cut at a word boundary to the Discord
+// limit. Only a new issue, pull request, discussion, comment, review, or
+// release shows the body.
+func excerpt(e *Event) string {
+	switch e.NameAction() {
+	case "issues.opened", "pull_request.opened", "issue_comment.created",
+		"pull_request_review_comment.created", "discussion_comment.created",
+		"pull_request_review.submitted", "discussion.created", "release.published":
+		return cutWords(clean(e.Body), maxDescription)
+	}
+	return ""
+}
+
+var (
+	// junk matches HTML comments, linked images, image markdown, and <img>
+	// tags. The linked image comes first, so that no empty link stays.
+	junk = regexp.MustCompile(`(?is)<!--.*?-->|\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>`)
+	// htmlTag matches a tag with a known HTML name, for example <details>
+	// or </summary>. Other names stay, so that code such as Vec<String>
+	// stays as it is.
+	htmlTag = regexp.MustCompile(`</?(?:a|b|i|u|s|p|br|hr|em|strong|del|ins|sub|sup|kbd|code|pre|div|span|details|summary|picture|source|video|center|blockquote|h[1-6]|ul|ol|li|table|thead|tbody|tr|th|td)\b[^>]*>`)
+	// blanks matches two or more blank lines.
+	blanks = regexp.MustCompile(`\n(?:[ \t]*\n){2,}`)
+)
+
+// clean removes the parts of a body that Discord cannot show: comments,
+// images, and HTML tags. It keeps the text in the tags and the markdown that
+// Discord shows, and collapses repeated blank lines.
+func clean(body string) string {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	body = junk.ReplaceAllString(body, "")
+	body = htmlTag.ReplaceAllString(body, "")
+	body = blanks.ReplaceAllString(body, "\n\n")
+	return strings.TrimSpace(body)
 }
 
 func renderIssue(e *Event) embed {
@@ -221,6 +287,20 @@ func stateColor(action string) int {
 		return colorClosed
 	}
 	return 0
+}
+
+// cutWords cuts s to at most n characters at the last word boundary. A text
+// with no boundary is cut in the word. A cut text ends with "…".
+func cutWords(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	head := string(r[:n])
+	if i := strings.LastIndexFunc(head, unicode.IsSpace); i > 0 {
+		return strings.TrimRightFunc(head[:i], unicode.IsSpace) + "…"
+	}
+	return cut(s, n)
 }
 
 // cut cuts s to at most n characters. A cut text ends with "…".

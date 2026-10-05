@@ -76,14 +76,16 @@ func TestMentions(t *testing.T) {
 }
 
 // assertMentions compares the content and allowed_mentions of the message
-// body with want. It ignores the embeds.
+// body with want. It ignores the poster and the embeds.
 func assertMentions(t *testing.T, body []byte, want string) {
 	t.Helper()
 	var msg map[string]any
 	if err := json.Unmarshal(body, &msg); err != nil {
 		t.Fatal(err)
 	}
-	delete(msg, "embeds")
+	for _, k := range []string{"username", "avatar_url", "embeds"} {
+		delete(msg, k)
+	}
 	b, _ := json.Marshal(msg)
 	assertJSON(t, b, want)
 }

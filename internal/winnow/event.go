@@ -294,8 +294,6 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 	}
 	if forge == "forgejo" {
 		mapForgejo(e, h.Get("X-Forgejo-Event-Type"), &p)
-		// ponytail: Discord cannot load avatars from a private Forgejo, so show its logo; add a key if a public Forgejo needs avatars.
-		e.SenderAvatar = forgejoIcon
 	}
 	// An optional Rule field belongs to one Event name. Another Event name
 	// with the same payload key does not have the field, for example ref on
@@ -314,8 +312,6 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 	}
 	return e, nil
 }
-
-const forgejoIcon = "https://forgejo.org/favicon.png"
 
 // mapForgejo changes the Forgejo names in e that have an exact GitHub twin
 // to the GitHub names. Every other name stays as it is, for example the

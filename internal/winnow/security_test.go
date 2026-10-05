@@ -10,8 +10,9 @@ func TestSecurityRenderers(t *testing.T) {
 		event, fixture, want string
 	}{
 		{"dependabot_alert", "github/dependabot_alert_created", `{
+			` + githubPoster + `,
 			"embeds": [{
-				"author": {"name": "github"},
+				"author": {"name": "github", "icon_url": "https://www.gravatar.com/avatar/c0b0109d9439de57fe3cf03abeccbc52f4c98170c732d3b69af5e6395ace574e?d=identicon&s=128"},
 				"title": "[autobrr/qui] Dependabot alert created: #20 semver vulnerable to Regular Expression Denial of Service",
 				"url": "https://github.example.invalid/autobrr/qui/security/dependabot/20",
 				"description": "Severity: medium\nPackage: semver (npm)\nPatched in: 7.5.2",
@@ -20,8 +21,9 @@ func TestSecurityRenderers(t *testing.T) {
 			"allowed_mentions": {"parse": []}
 		}`},
 		{"code_scanning_alert", "github/code_scanning_alert_created", `{
+			` + githubPoster + `,
 			"embeds": [{
-				"author": {"name": "github"},
+				"author": {"name": "github", "icon_url": "https://www.gravatar.com/avatar/c0b0109d9439de57fe3cf03abeccbc52f4c98170c732d3b69af5e6395ace574e?d=identicon&s=128"},
 				"title": "[autobrr/qui] Code scanning alert created: #10 Database query built from user-controlled sources",
 				"url": "https://github.example.invalid/autobrr/qui/security/code-scanning/10",
 				"description": "Severity: error",
@@ -30,8 +32,9 @@ func TestSecurityRenderers(t *testing.T) {
 			"allowed_mentions": {"parse": []}
 		}`},
 		{"secret_scanning_alert", "github/secret_scanning_alert_created", `{
+			` + githubPoster + `,
 			"embeds": [{
-				"author": {"name": "s0up4200"},
+				"author": {"name": "s0up4200", "icon_url": "https://www.gravatar.com/avatar/173ba346611228577922bcfaeed4ef078667a47712c5b759da97e4e527820a55?d=identicon&s=128"},
 				"title": "[autobrr/qui] Secret scanning alert created: #3 GitHub Personal Access Token",
 				"url": "https://github.example.invalid/autobrr/qui/security/secret-scanning/3",
 				"description": "Validity: active",
@@ -41,6 +44,7 @@ func TestSecurityRenderers(t *testing.T) {
 		}`},
 		// The payload has no sender, so the embed has no author.
 		{"repository_advisory", "github/repository_advisory_published", `{
+			` + githubPoster + `,
 			"embeds": [{
 				"title": "[autobrr/qui] Repository advisory published: Path traversal in upload handler",
 				"url": "https://github.example.invalid/autobrr/qui/security/advisories/GHSA-abcd-1234-efgh",
