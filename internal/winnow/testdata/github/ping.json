@@ -1,0 +1,27 @@
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 4001,
+  "hook": {
+    "type": "Organization",
+    "id": 4001,
+    "name": "web",
+    "active": true,
+    "events": ["*"],
+    "config": {
+      "content_type": "json",
+      "insecure_ssl": "0",
+      "url": "https://winnow.example.invalid/hook/github-autobrr"
+    }
+  },
+  "organization": {
+    "login": "autobrr",
+    "id": 2001
+  },
+  "sender": {
+    "login": "s0up4200",
+    "id": 3001,
+    "avatar_url": "https://avatars.example.invalid/u/3001",
+    "html_url": "https://github.example.invalid/s0up4200",
+    "type": "User"
+  }
+}
