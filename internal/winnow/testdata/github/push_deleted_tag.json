@@ -1,0 +1,36 @@
+{
+  "repository": {
+    "id": 186853002,
+    "name": "Hello-World",
+    "full_name": "Codertocat/Hello-World",
+    "private": false,
+    "html_url": "https://example.invalid/Codertocat/Hello-World",
+    "owner": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  },
+  "sender": {
+    "login": "Codertocat",
+    "id": 21031067,
+    "type": "User",
+    "avatar_url": "https://example.invalid/u/21031067?v=4",
+    "html_url": "https://example.invalid/Codertocat"
+  },
+  "ref": "refs/tags/simple-tag",
+  "before": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+  "after": "0000000000000000000000000000000000000000",
+  "created": false,
+  "deleted": true,
+  "forced": false,
+  "base_ref": null,
+  "compare": "https://example.invalid/Codertocat/Hello-World/compare/d70c5c6fa638^...000000000000",
+  "commits": [],
+  "head_commit": null,
+  "pusher": {
+    "name": "Codertocat"
+  }
+}

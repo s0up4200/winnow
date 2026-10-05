@@ -237,6 +237,20 @@ func TestRuleFields(t *testing.T) {
 		{"comment on a pull request", "{is_pull: true}", "issue_comment", botComment, http.StatusAccepted},
 		{"merged pull request", "{merged: true, draft: false}", "pull_request", fixture(t, "github/pull_request_merged"), http.StatusAccepted},
 		{"field that the Event does not have", "{merged: false}", "label", label, http.StatusNoContent},
+		{"list means any of", "{action: [deleted, created]}", "label", label, http.StatusAccepted},
+		{"list with no match", "{action: [deleted, edited]}", "label", label, http.StatusNoContent},
+		{"all fields must hold", "{action: created, sender: someone}", "label", label, http.StatusNoContent},
+		{"list of matchers means any of", "[{sender: someone}, {action: created}]", "label", label, http.StatusAccepted},
+		{"list of matchers with no match", "[{sender: someone}, {action: deleted}]", "label", label, http.StatusNoContent},
+		{"not with one matcher", "{not: {sender: s0up4200}}", "label", label, http.StatusNoContent},
+		{"not with a list", "{not: [{sender: someone}, {action: created}]}", "label", label, http.StatusNoContent},
+		{"not with no match", "{not: [{sender: someone}, {action: deleted}]}", "label", label, http.StatusAccepted},
+		{"star is a wildcard", "{repo: autobrr/*, sender: s0up*}", "label", label, http.StatusAccepted},
+		{"question mark is literal", `{sender: "s0up420?"}`, "label", label, http.StatusNoContent},
+		{"repo matches in lowercase", "{repo: AutoBrr/QUI, owner: AUTOBRR}", "label", label, http.StatusAccepted},
+		{"event matches as it is", "{event: LABEL}", "label", label, http.StatusNoContent},
+		{"missing field never matches", "{merged: true}", "label", label, http.StatusNoContent},
+		{"not on a missing field passes", "{not: {draft: true}}", "label", label, http.StatusAccepted},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
