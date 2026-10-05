@@ -38,6 +38,13 @@ routes:
   - match: { sendr: x }
     to: [a]
 `, "sendr"},
+		{"ping target in a matcher", `
+sinks:
+  a: { discord: https://discord.example.invalid/1 }
+routes:
+  - match: { target: x }
+    to: [a]
+`, "target"},
 		{"empty secret", `
 sources:
   s: { secret: "" }
