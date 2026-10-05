@@ -214,7 +214,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 	// Forgejo also sends X-GitHub-Event, so only X-Forgejo-Event shows the
 	// forge. The Event name comes from X-Forgejo-Event, not from
 	// X-Forgejo-Event-Type: X-Forgejo-Event has the GitHub names, for
-	// example pull_request for pull_request_sync.
+	// example pull_request for pull_request_sync (ADR 0006).
 	if fe := h.Get("X-Forgejo-Event"); fe != "" {
 		forge, name, delivery = "forgejo", fe, h.Get("X-Forgejo-Delivery")
 	}
