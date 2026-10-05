@@ -29,7 +29,7 @@ func main() {
 	// --config can come before or after the command.
 	cmd := flag.Arg(0)
 	if cmd != "" {
-		flag.CommandLine.Parse(flag.Args()[1:])
+		_ = flag.CommandLine.Parse(flag.Args()[1:]) // The default flag set exits on an error.
 	}
 
 	switch cmd {

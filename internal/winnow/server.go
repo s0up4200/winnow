@@ -48,7 +48,7 @@ func New(cfg *Config, log *slog.Logger) *Server {
 	// The health check shows only that the HTTP server runs, not the state
 	// of a Sink.
 	s.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, "ok")
+		_, _ = io.WriteString(w, "ok")
 	})
 	return s
 }

@@ -96,7 +96,7 @@ func newHarness(t *testing.T, config string) *harness {
 			w.Header().Set(k, v)
 		}
 		w.WriteHeader(rep.status)
-		io.WriteString(w, rep.body)
+		_, _ = io.WriteString(w, rep.body)
 	}))
 	t.Cleanup(fake.Close)
 	for name, s := range cfg.Sinks {
