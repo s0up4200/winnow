@@ -24,12 +24,12 @@ const (
 	soupAuthor = `"author": {
 	"name": "soup",
 	"url": "https://example.invalid/soup",
-	"icon_url": "https://example.invalid/avatars/soup"
+	"icon_url": "https://forgejo.org/favicon.png"
 }`
 	aliceAuthor = `"author": {
 	"name": "alice",
 	"url": "https://example.invalid/alice",
-	"icon_url": "https://example.invalid/avatars/alice"
+	"icon_url": "https://forgejo.org/favicon.png"
 }`
 )
 
