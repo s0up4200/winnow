@@ -1,6 +1,7 @@
 package winnow
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -18,19 +19,40 @@ type Server struct {
 	cfg   *Config
 	sinks map[string]*sink
 	log   *slog.Logger
+	drain chan struct{}      // closed when Shutdown starts
+	stop  context.CancelFunc // stops the sends when the drain time ends
 }
 
 // New returns the HTTP handler for cfg and starts one worker for each Sink.
 func New(cfg *Config, log *slog.Logger) *Server {
-	s := &Server{ServeMux: http.NewServeMux(), cfg: cfg, sinks: map[string]*sink{}, log: log}
+	ctx, stop := context.WithCancel(context.Background())
+	s := &Server{ServeMux: http.NewServeMux(), cfg: cfg, sinks: map[string]*sink{}, log: log, drain: make(chan struct{}), stop: stop}
 	for name, sc := range cfg.Sinks {
 		discord := newDiscordSender(sc.Discord)
-		s.sinks[name] = startSink(name, func(e *Event) error { return discord.send(render(e)) }, log)
+		s.sinks[name] = startSink(ctx, s.drain, name, func(ctx context.Context, e *Event) error { return discord.send(ctx, render(e)) }, log)
 	}
 	// The pattern has no method, so that an unknown Source gets 404 before
 	// a wrong method gets 405.
 	s.HandleFunc("/hook/{source}", s.hook)
+	// The health check shows only that the HTTP server runs, not the state
+	// of a Sink.
+	s.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, "ok")
+	})
 	return s
+}
+
+// Shutdown sends the Events left in the Sink queues and returns when the
+// queues are empty. When ctx ends first, the sends stop and each Event that
+// is not sent gets a failed delivery line with reason=shutdown. Call it after
+// the HTTP server stops, because the workers do not read an Event that comes
+// after the drain.
+func (s *Server) Shutdown(ctx context.Context) {
+	close(s.drain)
+	context.AfterFunc(ctx, s.stop)
+	for _, sk := range s.sinks {
+		<-sk.done
+	}
 }
 
 // hook receives one delivery. The order of the checks is part of the

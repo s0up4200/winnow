@@ -3,6 +3,7 @@ package winnow
 import (
 	"bytes"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 )
@@ -17,6 +18,16 @@ routes:
     match: { repo: autobrr/qui }
     to: [qui]
 `
+
+func TestHealthz(t *testing.T) {
+	h := newHarness(t, quiConfig)
+
+	rec := h.do(httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
+		t.Errorf("GET /healthz = %d %q, want 200 \"ok\"", rec.Code, rec.Body)
+	}
+}
 
 func TestDeliveryBecomesFallbackMessage(t *testing.T) {
 	h := newHarness(t, quiConfig)

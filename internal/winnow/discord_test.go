@@ -2,6 +2,7 @@ package winnow
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"reflect"
 	"strings"
@@ -153,5 +154,77 @@ func TestAttemptLimitCountsRateLimits(t *testing.T) {
 	}
 	if n := len(h.discord); n != 5 {
 		t.Errorf("fake Discord got %d requests, want 5", n)
+	}
+}
+
+// shutdown stops the Sink workers of h as winnow does on SIGTERM, with
+// timeout as the drain limit. It returns how long the stop took.
+func shutdown(h *harness, timeout time.Duration) time.Duration {
+	ctx, cancel := context.WithTimeout(h.t.Context(), timeout)
+	defer cancel()
+	start := time.Now()
+	h.handler.(*Server).Shutdown(ctx)
+	return time.Since(start)
+}
+
+func TestShutdownSendsQueuedEvents(t *testing.T) {
+	h := newHarness(t, quiConfig)
+	// The empty bucket keeps the next two Events in the queue for 100ms.
+	h.script(reply{
+		status: http.StatusNoContent,
+		header: map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset-After": "0.1"},
+	})
+	for range 3 {
+		deliverLabel(t, h)
+	}
+
+	shutdown(h, 2*time.Second)
+
+	if n := len(h.discord); n != 3 {
+		t.Errorf("fake Discord got %d requests, want 3", n)
+	}
+	if f := h.linesWith("delivery failed"); len(f) > 0 {
+		t.Errorf("failed delivery lines = %v, want none", f)
+	}
+}
+
+func TestShutdownLogsUnsentEvents(t *testing.T) {
+	tests := []struct {
+		name  string
+		reply reply
+		want  []float64 // the attempts of each shutdown line
+	}{
+		// The first Event waits a minute for its retry. The second is in
+		// the queue.
+		{"retry wait", reply{status: http.StatusTooManyRequests, body: `{"retry_after": 60}`}, []float64{1, 0}},
+		// The first Event is sent. The second waits a minute for the rate
+		// limit bucket.
+		{"empty bucket", reply{
+			status: http.StatusNoContent,
+			header: map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset-After": "60"},
+		}, []float64{0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, quiConfig)
+			h.script(tt.reply)
+			deliverLabel(t, h)
+			deliverLabel(t, h)
+			h.waitDiscord()
+
+			if took := shutdown(h, 100*time.Millisecond); took > time.Second {
+				t.Fatalf("shutdown took %v, want about the 100ms drain limit", took)
+			}
+
+			lines := h.linesWith("delivery failed")
+			if len(lines) != len(tt.want) {
+				t.Fatalf("got %d failed delivery lines, want %d: %v", len(lines), len(tt.want), lines)
+			}
+			for i, f := range lines {
+				if f["reason"] != "shutdown" || f["sink"] != "qui" || f["delivery"] != testDelivery || f["attempts"] != tt.want[i] {
+					t.Errorf("failed delivery line %d = %v, want reason shutdown after %v attempts", i, f, tt.want[i])
+				}
+			}
+		})
 	}
 }
