@@ -86,7 +86,7 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 	for _, to := range route.To {
 		d := delivery{event: e, route: route.Name}
 		if !s.sinks[to].enqueue(d) {
-			s.sinks[to].logFailure(d, "reason", "queue_full")
+			s.sinks[to].logFailure(d, &failure{reason: "queue_full"})
 		}
 	}
 	w.WriteHeader(http.StatusAccepted)
