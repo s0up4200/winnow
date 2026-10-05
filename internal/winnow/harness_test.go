@@ -25,6 +25,11 @@ const testSecret = "test-secret"
 // testDelivery is the delivery ID that signedDelivery sends.
 const testDelivery = "72d3162e-cc78-11e3-81ab-4c9367dc0958"
 
+func init() {
+	// Retries in tests wait a few milliseconds, not seconds.
+	retryBase = 10 * time.Millisecond
+}
+
 // harness is the HTTP handler of winnow, built from a YAML configuration,
 // with each Sink URL pointed at one fake Discord.
 type harness struct {
@@ -32,28 +37,66 @@ type harness struct {
 	handler http.Handler
 	logs    *syncBuffer
 	discord chan discordRequest
+	replies chan reply
 }
 
 // discordRequest is one request that the fake Discord received.
 type discordRequest struct {
 	Sink string // the Sink name, from the URL path
 	Body []byte
+	At   time.Time // when the fake Discord received the request
+}
+
+// reply is one scripted reply of the fake Discord. Status 0 closes the
+// connection with no reply, which is a network error for winnow.
+type reply struct {
+	status int
+	header map[string]string
+	body   string
+}
+
+// script makes the fake Discord use rs for its next replies, in order. After
+// them, it replies 204 again.
+func (h *harness) script(rs ...reply) {
+	for _, r := range rs {
+		h.replies <- r
+	}
 }
 
 // newHarness loads config and builds the handler. It replaces the discord URL
 // of each Sink with the URL of a fake Discord. The fake Discord records each
-// request on h.discord and replies 204. The logs go to a buffer as JSON.
+// request on h.discord and replies 204, or the next reply from h.script. The logs go to a buffer as JSON.
 func newHarness(t *testing.T, config string) *harness {
 	t.Helper()
 	cfg, errs, _ := Load([]byte(config))
 	if len(errs) > 0 {
 		t.Fatalf("load configuration: %v", errs)
 	}
-	h := &harness{t: t, logs: &syncBuffer{}, discord: make(chan discordRequest, 100)}
+	h := &harness{t: t, logs: &syncBuffer{}, discord: make(chan discordRequest, 100), replies: make(chan reply, 100)}
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		h.discord <- discordRequest{Sink: strings.TrimPrefix(r.URL.Path, "/"), Body: body}
-		w.WriteHeader(http.StatusNoContent)
+		// When h.discord is full, the fake Discord drops the record, so
+		// that a flood of requests fails the test and does not hang it.
+		select {
+		case h.discord <- discordRequest{Sink: strings.TrimPrefix(r.URL.Path, "/"), Body: body, At: time.Now()}:
+		default:
+		}
+		rep := reply{status: http.StatusNoContent}
+		select {
+		case rep = <-h.replies:
+		default:
+		}
+		if rep.status == 0 {
+			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+				conn.Close()
+			}
+			return
+		}
+		for k, v := range rep.header {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(rep.status)
+		io.WriteString(w, rep.body)
 	}))
 	t.Cleanup(fake.Close)
 	for name, s := range cfg.Sinks {
@@ -102,16 +145,42 @@ func (h *harness) logLines() []map[string]any {
 // decision lines is not one.
 func (h *harness) decision() map[string]any {
 	h.t.Helper()
-	var found []map[string]any
-	for _, m := range h.logLines() {
-		if m["msg"] == "routed" {
-			found = append(found, m)
-		}
-	}
+	found := h.linesWith("routed")
 	if len(found) != 1 {
 		h.t.Fatalf("got %d decision lines, want 1: %v", len(found), found)
 	}
 	return found[0]
+}
+
+// linesWith returns the log lines with the message msg.
+func (h *harness) linesWith(msg string) []map[string]any {
+	h.t.Helper()
+	var found []map[string]any
+	for _, m := range h.logLines() {
+		if m["msg"] == msg {
+			found = append(found, m)
+		}
+	}
+	return found
+}
+
+// waitFailure waits for the failed delivery line and returns it. It fails the
+// test if more than one failed delivery line comes.
+func (h *harness) waitFailure() map[string]any {
+	h.t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		found := h.linesWith("delivery failed")
+		switch len(found) {
+		case 0:
+			continue
+		case 1:
+			return found[0]
+		default:
+			h.t.Fatalf("got %d failed delivery lines, want 1: %v", len(found), found)
+		}
+	}
+	h.t.Fatal("no failed delivery line")
+	return nil
 }
 
 // signedDelivery returns a GitHub delivery to /hook/<source> with a correct
