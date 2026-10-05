@@ -1,0 +1,40 @@
+{
+  "action": "published",
+  "repository": {
+    "id": 186853002,
+    "name": "Hello-World",
+    "full_name": "Codertocat/Hello-World",
+    "private": false,
+    "html_url": "https://example.invalid/Codertocat/Hello-World",
+    "owner": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  },
+  "sender": {
+    "login": "Codertocat",
+    "id": 21031067,
+    "type": "User",
+    "avatar_url": "https://example.invalid/u/21031067?v=4",
+    "html_url": "https://example.invalid/Codertocat"
+  },
+  "release": {
+    "id": 17372790,
+    "tag_name": "0.0.1",
+    "name": "",
+    "body": "",
+    "html_url": "https://example.invalid/Codertocat/Hello-World/releases/tag/0.0.1",
+    "draft": false,
+    "prerelease": false,
+    "author": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  }
+}
