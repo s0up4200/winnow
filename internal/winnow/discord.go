@@ -3,6 +3,7 @@ package winnow
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json/v2"
 	"errors"
 	"io"
@@ -69,14 +70,18 @@ func newDiscordSender(webhookURL string) *discordSender {
 // send posts msg and retries it after a server error or a network error. When
 // Discord does not take msg, send returns a *failure. The failure never holds
 // the webhook URL, because the URL holds the webhook token.
-func (d *discordSender) send(msg message) error {
+func (d *discordSender) send(ctx context.Context, msg message) error {
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-	errs := 0 // server errors and network errors
+	last := &failure{} // the last attempt that failed
+	errs := 0          // server errors and network errors
 	for attempt := 1; ; attempt++ {
-		status, reply, err := d.post(body)
+		status, reply, err := d.post(ctx, body)
+		if ctx.Err() != nil {
+			break
+		}
 		f := &failure{reason: "rejected", attempts: attempt, status: status, detail: string(reply)}
 		if err != nil {
 			f.detail = err.Error()
@@ -102,16 +107,42 @@ func (d *discordSender) send(msg message) error {
 			f.reason = "retries_exhausted"
 			return f
 		}
-		time.Sleep(wait)
+		last = f
+		if !sleep(ctx, wait) {
+			break
+		}
+	}
+	// ctx ended before Discord took msg. A send that ctx cut is not an
+	// attempt.
+	last.reason = "shutdown"
+	return last
+}
+
+// sleep waits for d. It returns false when ctx ends first.
+func sleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
 // post sends body once. It returns the HTTP status and the first 500 bytes
 // of the reply body. When the rate limit bucket is empty, post waits until
 // Discord fills it again.
-func (d *discordSender) post(body []byte) (int, []byte, error) {
-	time.Sleep(time.Until(d.next))
-	resp, err := d.client.Post(d.url, "application/json", bytes.NewReader(body))
+func (d *discordSender) post(ctx context.Context, body []byte) (int, []byte, error) {
+	if !sleep(ctx, time.Until(d.next)) {
+		return 0, nil, ctx.Err()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.url, bytes.NewReader(body))
+	var resp *http.Response
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		resp, err = d.client.Do(req)
+	}
 	if err != nil {
 		if ue, ok := errors.AsType[*url.Error](err); ok {
 			err = ue.Err
