@@ -1,6 +1,7 @@
 package winnow
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -182,5 +183,24 @@ routes:
 	}
 	if got := cfg.Routes[0].Name; got != "${WINNOW_SECRET}" {
 		t.Errorf("route name = %q, want the literal placeholder", got)
+	}
+}
+
+// TestSampleConfigurationLoads keeps winnow.example.yaml valid: with its
+// variables set, `winnow check` passes on it.
+func TestSampleConfigurationLoads(t *testing.T) {
+	for _, name := range []string{
+		"WINNOW_SECRET_GITHUB_AUTOBRR", "WINNOW_SECRET_GITHUB_S0UP4200", "WINNOW_SECRET_FORGEJO",
+		"WINNOW_DISCORD_SECURITY", "WINNOW_DISCORD_AUTOBRR", "WINNOW_DISCORD_QUI",
+		"WINNOW_DISCORD_SOUP", "WINNOW_DISCORD_RELEASES",
+	} {
+		t.Setenv(name, "https://discord.example.invalid/api/webhooks/1/"+name)
+	}
+	data, err := os.ReadFile("../../winnow.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, errs, warns := Load(data); len(errs) > 0 || len(warns) > 0 {
+		t.Fatalf("errors = %v, warnings = %v, want none", errs, warns)
 	}
 }
