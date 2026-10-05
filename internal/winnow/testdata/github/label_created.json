@@ -1,0 +1,35 @@
+{
+  "action": "created",
+  "label": {
+    "id": 9001,
+    "url": "https://api.github.example.invalid/repos/autobrr/qui/labels/needs-triage",
+    "name": "needs-triage",
+    "color": "ededed",
+    "default": false,
+    "description": "A maintainer must look at this"
+  },
+  "repository": {
+    "id": 1001,
+    "name": "qui",
+    "full_name": "autobrr/qui",
+    "private": false,
+    "html_url": "https://github.example.invalid/autobrr/qui",
+    "owner": {
+      "login": "autobrr",
+      "id": 2001,
+      "html_url": "https://github.example.invalid/autobrr",
+      "type": "Organization"
+    }
+  },
+  "organization": {
+    "login": "autobrr",
+    "id": 2001
+  },
+  "sender": {
+    "login": "s0up4200",
+    "id": 3001,
+    "avatar_url": "https://avatars.example.invalid/u/3001",
+    "html_url": "https://github.example.invalid/s0up4200",
+    "type": "User"
+  }
+}
