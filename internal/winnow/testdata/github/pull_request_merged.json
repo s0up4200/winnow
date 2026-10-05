@@ -1,0 +1,46 @@
+{
+  "action": "closed",
+  "number": 43,
+  "pull_request": {
+    "id": 7001,
+    "number": 43,
+    "html_url": "https://github.example.invalid/autobrr/qui/pull/43",
+    "state": "closed",
+    "title": "Add cross-seed search",
+    "body": "This adds a search for cross-seed matches.",
+    "user": {
+      "login": "s0up4200",
+      "id": 3001,
+      "type": "User"
+    },
+    "draft": false,
+    "merged": true,
+    "merged_at": "2026-10-01T12:00:00Z",
+    "base": {
+      "ref": "main"
+    },
+    "head": {
+      "ref": "feat/cross-seed-search"
+    }
+  },
+  "repository": {
+    "id": 1001,
+    "name": "qui",
+    "full_name": "autobrr/qui",
+    "private": false,
+    "html_url": "https://github.example.invalid/autobrr/qui",
+    "owner": {
+      "login": "autobrr",
+      "id": 2001,
+      "html_url": "https://github.example.invalid/autobrr",
+      "type": "Organization"
+    }
+  },
+  "sender": {
+    "login": "s0up4200",
+    "id": 3001,
+    "avatar_url": "https://avatars.example.invalid/u/3001",
+    "html_url": "https://github.example.invalid/s0up4200",
+    "type": "User"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "action": "created",
+  "issue": {
+    "id": 5001,
+    "number": 42,
+    "title": "Update module go.yaml.in/yaml/v3",
+    "html_url": "https://github.example.invalid/autobrr/qui/pull/42",
+    "state": "open",
+    "user": {
+      "login": "renovate[bot]",
+      "id": 3002,
+      "type": "Bot"
+    },
+    "pull_request": {
+      "url": "https://api.github.example.invalid/repos/autobrr/qui/pulls/42",
+      "html_url": "https://github.example.invalid/autobrr/qui/pull/42"
+    },
+    "body": "This PR updates a dependency."
+  },
+  "comment": {
+    "id": 6001,
+    "html_url": "https://github.example.invalid/autobrr/qui/pull/42#issuecomment-6001",
+    "body": "Edited/Blocked Notification",
+    "user": {
+      "login": "renovate[bot]",
+      "id": 3002,
+      "type": "Bot"
+    }
+  },
+  "repository": {
+    "id": 1001,
+    "name": "qui",
+    "full_name": "autobrr/qui",
+    "private": false,
+    "html_url": "https://github.example.invalid/autobrr/qui",
+    "owner": {
+      "login": "autobrr",
+      "id": 2001,
+      "html_url": "https://github.example.invalid/autobrr",
+      "type": "Organization"
+    }
+  },
+  "sender": {
+    "login": "renovate[bot]",
+    "id": 3002,
+    "avatar_url": "https://avatars.example.invalid/in/3002",
+    "html_url": "https://github.example.invalid/apps/renovate",
+    "type": "Bot"
+  }
+}

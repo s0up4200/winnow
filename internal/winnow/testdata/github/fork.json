@@ -1,0 +1,37 @@
+{
+  "repository": {
+    "id": 186853002,
+    "name": "Hello-World",
+    "full_name": "Codertocat/Hello-World",
+    "private": false,
+    "html_url": "https://example.invalid/Codertocat/Hello-World",
+    "owner": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  },
+  "sender": {
+    "login": "Octocoders",
+    "id": 38302899,
+    "type": "Organization",
+    "avatar_url": "https://example.invalid/u/38302899?v=4",
+    "html_url": "https://example.invalid/Octocoders"
+  },
+  "forkee": {
+    "id": 186853261,
+    "name": "Hello-World",
+    "full_name": "Octocoders/Hello-World",
+    "private": false,
+    "html_url": "https://example.invalid/Octocoders/Hello-World",
+    "owner": {
+      "login": "Octocoders",
+      "id": 38302899,
+      "type": "Organization",
+      "avatar_url": "https://example.invalid/u/38302899?v=4",
+      "html_url": "https://example.invalid/Octocoders"
+    }
+  }
+}

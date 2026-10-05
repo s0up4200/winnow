@@ -1,0 +1,25 @@
+{
+  "action": "created",
+  "repository": {
+    "full_name": "autobrr/qui",
+    "html_url": "https://github.example.invalid/autobrr/qui",
+    "owner": {
+      "login": "autobrr",
+      "type": "Organization"
+    }
+  },
+  "sender": {
+    "login": "github",
+    "type": "Organization"
+  },
+  "ref": "refs/heads/develop",
+  "alert": {
+    "number": 10,
+    "html_url": "https://github.example.invalid/autobrr/qui/security/code-scanning/10",
+    "rule": {
+      "severity": "error",
+      "description": "Database query built from user-controlled sources"
+    },
+    "most_recent_instance": null
+  }
+}

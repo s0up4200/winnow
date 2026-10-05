@@ -1,0 +1,10 @@
+version: "2"
+
+linters:
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # Some error strings end with a YAML key, for example "not: inside not:".
+      - linters: [staticcheck]
+        text: ST1005

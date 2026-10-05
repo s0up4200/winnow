@@ -1,0 +1,61 @@
+{
+  "action": "created",
+  "repository": {
+    "id": 186853002,
+    "name": "Hello-World",
+    "full_name": "Codertocat/Hello-World",
+    "private": false,
+    "html_url": "https://example.invalid/Codertocat/Hello-World",
+    "owner": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  },
+  "sender": {
+    "login": "Codertocat",
+    "id": 21031067,
+    "type": "User",
+    "avatar_url": "https://example.invalid/u/21031067?v=4",
+    "html_url": "https://example.invalid/Codertocat"
+  },
+  "issue": {
+    "number": 1,
+    "title": "Spelling error in the README file",
+    "body": "It looks like you accidently spelled 'commit' with two 't's.",
+    "html_url": "https://example.invalid/Codertocat/Hello-World/pull/1",
+    "state": "open",
+    "user": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    },
+    "assignee": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    },
+    "pull_request": {
+      "html_url": "https://example.invalid/Codertocat/Hello-World/pull/1",
+      "merged_at": null
+    }
+  },
+  "comment": {
+    "id": 492700400,
+    "body": "You are totally right! I'll get this fixed right away.",
+    "html_url": "https://example.invalid/Codertocat/Hello-World/pull/1#issuecomment-492700400",
+    "user": {
+      "login": "Codertocat",
+      "id": 21031067,
+      "type": "User",
+      "avatar_url": "https://example.invalid/u/21031067?v=4",
+      "html_url": "https://example.invalid/Codertocat"
+    }
+  }
+}
