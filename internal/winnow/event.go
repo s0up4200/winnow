@@ -32,6 +32,7 @@ type Event struct {
 	// Renderers read the others.
 	Delivery     string // X-GitHub-Delivery or X-Forgejo-Delivery
 	URL          string // link to the main object
+	RepoURL      string // link to the repository; the References in Body link to it
 	Title        string // title of the main object, for example the issue title
 	Number       int    // number of the issue, pull request, or discussion; 0 if none
 	Body         string // text of the most specific object, for example the comment
@@ -241,6 +242,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		Draft:        p.PullRequest.Draft,
 		ReviewState:  p.Review.State,
 		Delivery:     delivery,
+		RepoURL:      p.Repository.HTMLURL,
 		SenderURL:    p.Sender.HTMLURL,
 		SenderAvatar: p.Sender.AvatarURL,
 	}

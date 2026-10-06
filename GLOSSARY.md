@@ -40,6 +40,10 @@ _Avoid_: bot name, webhook user
 The generic message for a routed Event that has no Renderer. It names the event, the action, the repository, and the sender. It links to the main object.
 _Avoid_: default message, generic embed
 
+**Reference**:
+A commit hash or `#n` in a body that winnow turns into a link to that commit, issue, or pull request.
+_Avoid_: autolink, mention
+
 **User map**:
 The list that links a forge login to a Discord user. Winnow pings only users in this list.
 _Avoid_: mention list, user mapping

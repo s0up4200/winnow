@@ -34,6 +34,14 @@ const (
 	maxDescription = 4096
 )
 
+// maxExcerptBody is the number of bytes of a body that excerpt reads. Only
+// 4096 characters reach Discord, so a larger body only costs memory.
+//
+// ponytail: when the cut is in an HTML comment, the comment has no end, so
+// clean keeps its text. Raise the limit if a real body has a comment of
+// 256 KiB.
+const maxExcerptBody = 256 << 10
+
 // render turns an Event into one Discord message. It selects the Renderer by
 // the Event name. An Event name with no Renderer, or a Renderer that returns
 // the zero embed, gets the Fallback message. The Poster of each message is
@@ -136,19 +144,38 @@ func avatar(e *Event) string {
 	return "https://www.gravatar.com/avatar/" + hex.EncodeToString(sum[:]) + "?d=identicon&s=128"
 }
 
-// excerpt returns the clean body of e, cut at a word boundary to the Discord
-// limit. Only a new issue, pull request, discussion, comment, review, or
-// release, and a reported or published repository advisory, shows the body.
+// excerpt returns the clean body of e with its References linked, cut at a
+// word boundary to the Discord limit. Only a new issue, pull request,
+// discussion, comment, review, or release, and a reported or published
+// repository advisory, shows the body.
 func excerpt(e *Event) string {
 	switch e.NameAction() {
 	case "issues.opened", "pull_request.opened", "issue_comment.created",
 		"pull_request_review_comment.created", "discussion_comment.created",
 		"pull_request_review.submitted", "discussion.created", "release.published",
 		"repository_advisory.reported", "repository_advisory.published":
-		return cutWords(clean(e.Body), maxDescription)
+		body := e.Body
+		if len(body) > maxExcerptBody {
+			// ToValidUTF8 drops a character that the cut splits.
+			body = strings.ToValidUTF8(body[:maxExcerptBody], "")
+		}
+		return cutWords(clean(body, e.RepoURL), maxDescription)
 	}
 	return ""
 }
+
+// inlineCodePattern matches inline code.
+//
+// ponytail: a code span is on one line and has a run of one or two
+// backticks, and an escaped \` starts a span. Scan the backtick runs as
+// CommonMark does if a real body breaks this.
+const inlineCodePattern = "``[^\n]+?``|`[^`\n]+`"
+
+// mdLinkPattern matches a markdown link on one line: an inline link, or a
+// reference link such as [text][label] or [text][]. The text can hold one
+// level of brackets, and the URL one level of parentheses. A title after
+// the URL is part of the match.
+const mdLinkPattern = `\[(?:[^\[\]\n]|\[[^\[\]\n]*\])*\](?:\((?:[^()\n]|\([^()\n]*\))*\)|\[[^\[\]\n]*\])`
 
 var (
 	// markup matches the parts that clean removes from prose, and inline
@@ -158,14 +185,10 @@ var (
 	// such as Vec<String> stays as it is. The linked image comes before the
 	// image, so that no empty link stays. The match that starts first wins,
 	// so code can hold a tag, and a tag or an image can hold code.
-	//
-	// ponytail: a code span is on one line and has a run of one or two
-	// backticks, and an escaped \` starts a span. Scan the backtick runs as
-	// CommonMark does if a real body breaks this.
 	markup = regexp.MustCompile("(?s)<!--.*?-->" +
 		`|\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)|(?i:<img\b[^>]*>)` +
 		`|</?(?:a|b|i|u|s|p|br|hr|em|strong|del|ins|sub|sup|kbd|code|pre|div|span|details|summary|picture|source|video|center|blockquote|h[1-6]|ul|ol|li|table|thead|tbody|tr|th|td)\b[^>]*>` +
-		"|``[^\n]+?``|`[^`\n]+`")
+		"|" + inlineCodePattern)
 	// blanks matches two or more blank lines.
 	blanks = regexp.MustCompile(`\n(?:[ \t]*\n){2,}`)
 	// tableRule matches the line under the header of a markdown table, for
@@ -174,18 +197,31 @@ var (
 	// fenceOpen matches the line that opens a fenced code block: three or
 	// more backticks or tildes, indented by at most three spaces.
 	fenceOpen = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})")
+	// mdLink matches a markdown link. cutWords does not cut in one.
+	mdLink = regexp.MustCompile(mdLinkPattern)
+	// references matches a Reference, a full commit hash or #n. It also
+	// matches inline code, a markdown link, and a bare URL, because a
+	// Reference in them stays as it is. The match that starts first wins.
+	// The hex match takes the full run, so that a 64-character checksum
+	// does not match as a 40-character hash. It starts at 40 characters, so
+	// that a body with many short runs, for example "a a a", does not make
+	// one match for each run.
+	references = regexp.MustCompile(inlineCodePattern + "|" + mdLinkPattern +
+		`|https?://[^\s<>]+|([0-9a-f]{40,})|#([0-9]+)`)
 )
 
 // clean removes the parts of a body that Discord cannot show: comments,
 // images, and HTML tags. It keeps the text in the tags and the markdown that
 // Discord shows, changes tables to lists, and collapses repeated blank lines.
-// It does not change the text in a fenced code block or in inline code. A
-// block that does not close continues to the end of the body, as on GitHub.
-func clean(body string) string {
+// It changes each Reference to a link into repo, and adds no link when repo
+// is empty. It does not change the text in a fenced code block or in inline
+// code. A block that does not close continues to the end of the body, as on
+// GitHub.
+func clean(body, repo string) string {
 	var out, prose []string
 	flush := func() {
 		if len(prose) > 0 {
-			out = append(out, cleanProse(strings.Join(prose, "\n")))
+			out = append(out, linkReferences(cleanProse(strings.Join(prose, "\n")), repo))
 			prose = nil
 		}
 	}
@@ -241,6 +277,45 @@ func cleanProse(text string) string {
 	})
 	text = tables(text)
 	return blanks.ReplaceAllString(text, "\n\n")
+}
+
+// linkReferences changes each Reference in text to a markdown link into
+// repo. A hash link shows the first 7 characters. GitHub and Forgejo
+// redirect /issues/n to the pull request when n is a pull request.
+func linkReferences(text, repo string) string {
+	if repo == "" {
+		return text
+	}
+	var b strings.Builder
+	last := 0
+	for _, loc := range references.FindAllStringSubmatchIndex(text, -1) {
+		i, j := loc[0], loc[1]
+		before, _ := utf8.DecodeLastRuneInString(text[:i])
+		after, _ := utf8.DecodeRuneInString(text[j:])
+		// A backslash escapes a Reference, so it stays as text.
+		if isWord(before) || isWord(after) || before == '\\' {
+			continue
+		}
+		m := text[i:j]
+		hex, num := loc[2] >= 0, loc[4] >= 0 // the groups of references
+		switch {
+		case hex && len(m) == 40:
+			m = "[" + m[:7] + "](" + repo + "/commit/" + m + ")"
+		// & before # starts an HTML entity, for example &#39;.
+		case num && before != '&':
+			m = "[" + m + "](" + repo + "/issues/" + m[1:] + ")"
+		default:
+			continue
+		}
+		b.WriteString(text[last:i] + m)
+		last = j
+	}
+	return b.String() + text[last:]
+}
+
+// isWord reports whether r is a letter, a digit, or "_".
+func isWord(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 // tables changes each markdown table to a bold header line and one bullet for
@@ -407,15 +482,22 @@ func stateColor(action string) int {
 // cutWords cuts s to at most n characters at the last word boundary. A text
 // with no boundary in the second half of the cut is cut in the word, so a
 // long word after a short heading does not drop the text. A cut text ends
-// with "…". A cut in a fenced code block closes the block with the opening
-// fence on a new line, and the result with the fence has at most n
-// characters.
+// with "…". A cut in a markdown link moves back to before the link. A cut in
+// a fenced code block closes the block with the opening fence on a new line,
+// and the result with the fence has at most n characters.
 func cutWords(s string, n int) string {
 	if utf8.RuneCountInString(s) <= n {
 		return s
 	}
+	links := mdLink.FindAllStringIndex(s, -1)
 	for m := n; ; {
 		c := strings.TrimSuffix(cutAtWord(s, m), "…")
+		for _, l := range links {
+			if l[0] < len(c) && len(c) < l[1] {
+				c = strings.TrimRightFunc(s[:l[0]], unicode.IsSpace)
+				break
+			}
+		}
 		end := "…"
 		// "…" on a fence line makes the fence text, so it goes on a new line.
 		if fenceOpen.MatchString(c[strings.LastIndexByte(c, '\n')+1:]) {

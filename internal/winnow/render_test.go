@@ -169,17 +169,32 @@ func TestRendererCutsToDiscordLimits(t *testing.T) {
 	}
 }
 
+// issueText is the issue text in the issues_opened fixture.
+const issueText = "It looks like you accidently spelled 'commit' with two 't's."
+
 // issueDescription sends an issues.opened Event with body as the issue text
 // and returns the embed description.
 func issueDescription(t *testing.T, body string) string {
 	t.Helper()
-	h := newHarness(t, catchAllConfig)
+	return description(t, catchAllConfig, signedDelivery("github-autobrr", "issues", withBody(t, fixture(t, "github/issues_opened"), issueText, body)))
+}
+
+// withBody returns payload with the first JSON string old replaced by body.
+func withBody(t *testing.T, payload []byte, old, body string) []byte {
+	t.Helper()
 	quoted, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := bytes.Replace(fixture(t, "github/issues_opened"), []byte(`"It looks like you accidently spelled 'commit' with two 't's."`), quoted, 1)
-	if got := h.do(signedDelivery("github-autobrr", "issues", payload)).Code; got != http.StatusAccepted {
+	return bytes.Replace(payload, []byte(`"`+old+`"`), quoted, 1)
+}
+
+// description sends req to a harness with config and returns the embed
+// description.
+func description(t *testing.T, config string, req *http.Request) string {
+	t.Helper()
+	h := newHarness(t, config)
+	if got := h.do(req).Code; got != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", got)
 	}
 	var msg struct {
@@ -290,5 +305,112 @@ func TestCutWordsAtFence(t *testing.T) {
 		if got != tt.want || utf8.RuneCountInString(got) > tt.n {
 			t.Errorf("cutWords(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
 		}
+	}
+}
+
+// hash is a full commit hash, and repoURL is the repository URL in the
+// GitHub fixtures.
+const (
+	hash    = "21ba448d1c52bcce9ead8b0acba67e3ca8ba3d05"
+	repoURL = "https://example.invalid/Codertocat/Hello-World"
+)
+
+func TestRendererLinksReleaseChangelog(t *testing.T) {
+	body := "## Changelog\n### New Features\n* " + hash + " feat: add a flag (#202) (@alice)\n" +
+		"* 0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c fix: stop a crash (#203) (@bob)"
+	want := "## Changelog\n### New Features\n* [21ba448](" + repoURL + "/commit/" + hash + ") feat: add a flag ([#202](" + repoURL + "/issues/202)) (@alice)\n" +
+		"* [0d1a26e](" + repoURL + "/commit/0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c) fix: stop a crash ([#203](" + repoURL + "/issues/203)) (@bob)"
+	quoted, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The release name before the body is also "", so the replacement
+	// names the key.
+	payload := bytes.Replace(fixture(t, "github/release_published"), []byte(`"body": ""`), append([]byte(`"body": `), quoted...), 1)
+	if got := description(t, catchAllConfig, signedDelivery("github-autobrr", "release", payload)); got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
+// A Reference in code, in a link, or in a URL, and text that is only like a
+// Reference, stay as they are.
+func TestRendererKeepsTextThatIsNotAReference(t *testing.T) {
+	for _, body := range []string{
+		"```\n" + hash + " #12\n```",
+		"See `#12` and ``" + hash + "``.",
+		"[#12](https://example.invalid/x/pull/12) and [" + hash + "](https://example.invalid/c)",
+		"[see #12](https://example.invalid/a \"t\") [fix [#12]](https://example.invalid/b) [a](https://example.invalid/(x)#12)",
+		"It&#39;s fixed.",
+		"\\#12 and \\" + hash + " stay as text.",
+		"[#12][ticket] and [" + hash + "][]\n\n[ticket]: https://example.invalid/t",
+		"https://example.invalid/x/commit/" + hash + " https://example.invalid/a.go#L10 <https://example.invalid/b#12>",
+		"abc#12 #12a _#12 x" + hash + " " + hash + "0",
+		"sha256: " + hash + hash[:24],
+	} {
+		if got := issueDescription(t, body); got != body {
+			t.Errorf("description = %q, want %q", got, body)
+		}
+	}
+}
+
+func TestRendererLinksNoReferenceWithoutRepositoryURL(t *testing.T) {
+	body := "Fixes #12 in " + hash + "."
+	payload := bytes.Replace(fixture(t, "github/issues_opened"), []byte(`"html_url": "`+repoURL+`",`), []byte(`"html_url": "",`), 1)
+	payload = withBody(t, payload, issueText, body)
+	if got := description(t, catchAllConfig, signedDelivery("github-autobrr", "issues", payload)); got != body {
+		t.Errorf("description = %q, want %q", got, body)
+	}
+}
+
+func TestRendererLinksForgejoReferences(t *testing.T) {
+	const forgejoURL = "https://example.invalid/soup/winnow-test"
+	payload := withBody(t, fixture(t, "forgejo/issues-opened"), `Steps:\n1. Start with an empty file.\n2. It panics.`, "Since #3 in "+hash+".")
+	want := "Since [#3](" + forgejoURL + "/issues/3) in [21ba448](" + forgejoURL + "/commit/" + hash + ")."
+	if got := description(t, forgejoConfig, forgejoDelivery("forgejo", "issues", "issues", payload)); got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
+// The cut at the Discord limit moves back to before a link that it would
+// split.
+func TestRendererCutsBeforeLink(t *testing.T) {
+	ref := "[#12](" + repoURL + "/issues/12)"
+	author := "[the crash report](https://example.invalid/crash)"
+	for _, tt := range []struct {
+		name, body, link string
+	}{
+		{"References with no space", "Refs:" + strings.Repeat("(#12)", 2000), ref},
+		{"links with spaces in the text", strings.Repeat(author+" ", 200), author},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := issueDescription(t, tt.body)
+			if n := utf8.RuneCountInString(got); n > maxDescription {
+				t.Errorf("description has %d characters, want at most %d", n, maxDescription)
+			}
+			rest, ok := strings.CutSuffix(got, "…")
+			if !ok || strings.Trim(strings.ReplaceAll(strings.TrimPrefix(rest, "Refs:"), tt.link, ""), "() ") != "" {
+				t.Errorf("description ends in %q, want whole links and the end …", got[max(0, len(got)-60):])
+			}
+		})
+	}
+}
+
+// A long body of short hex runs must not make one match for each run.
+func TestLinkReferencesSkipsShortHexRuns(t *testing.T) {
+	body := strings.Repeat("a ", 1<<19)
+	if n := testing.AllocsPerRun(1, func() { linkReferences(body, repoURL) }); n > 100 {
+		t.Errorf("linkReferences made %.0f allocations, want at most 100", n)
+	}
+}
+
+// The work for an excerpt does not grow with the body after a limit, because
+// only 4096 characters reach Discord.
+func TestExcerptWorkStopsGrowing(t *testing.T) {
+	allocs := func(n int) float64 {
+		e := &Event{Name: "issues", Action: "opened", Body: strings.Repeat("#1 ", n), RepoURL: repoURL}
+		return testing.AllocsPerRun(1, func() { excerpt(e) })
+	}
+	if small, large := allocs(1<<18), allocs(1<<20); large > small*1.1 {
+		t.Errorf("excerpt made %.0f allocations for a 3 MiB body and %.0f for a 768 KiB body, want about the same", large, small)
 	}
 }
