@@ -1,8 +1,12 @@
 package winnow
 
 import (
+	"bytes"
+	"encoding/json/v2"
 	"net/http"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSecurityRenderers(t *testing.T) {
@@ -48,7 +52,7 @@ func TestSecurityRenderers(t *testing.T) {
 			"embeds": [{
 				"title": "[autobrr/qui] Repository advisory published: Path traversal in upload handler",
 				"url": "https://github.example.invalid/autobrr/qui/security/advisories/GHSA-abcd-1234-efgh",
-				"description": "Severity: high",
+				"description": "Severity: high\n\n### Summary\nThe upload handler joins the file name to the upload path.\n\n### Impact\nAn attacker can write files outside the upload path.",
 				"color": 14901769
 			}],
 			"allowed_mentions": {"parse": []}
@@ -63,5 +67,28 @@ func TestSecurityRenderers(t *testing.T) {
 			}
 			assertJSON(t, h.waitDiscord().Body, tt.want)
 		})
+	}
+}
+
+// A report that starts with a long word, such as a base64 proof of concept,
+// is cut in the word, not before the report.
+func TestAdvisoryReportCutsLongWord(t *testing.T) {
+	h := newHarness(t, quiConfig)
+	payload := bytes.Replace(fixture(t, "github/repository_advisory_published"),
+		[]byte("### Summary\\r\\nThe upload handler"), []byte(strings.Repeat("A", 5000)), 1)
+	if got := h.do(signedDelivery("github-autobrr", "repository_advisory", payload)).Code; got != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", got)
+	}
+	var msg struct {
+		Embeds []struct {
+			Description string `json:"description"`
+		} `json:"embeds"`
+	}
+	if err := json.Unmarshal(h.waitDiscord().Body, &msg); err != nil {
+		t.Fatal(err)
+	}
+	want := "Severity: high\n\n" + strings.Repeat("A", 4079) + "…"
+	if got := msg.Embeds[0].Description; got != want {
+		t.Errorf("description has %d characters and starts with %.20q, want %d", utf8.RuneCountInString(got), got, utf8.RuneCountInString(want))
 	}
 }

@@ -12,6 +12,7 @@
     "cve_id": null,
     "html_url": "https://github.example.invalid/autobrr/qui/security/advisories/GHSA-abcd-1234-efgh",
     "summary": "Path traversal in upload handler",
+    "description": "### Summary\r\nThe upload handler joins the file name to the upload path.\r\n\r\n<!-- Add a PoC. -->\r\n### Impact\r\nAn attacker can write files outside the upload path.",
     "severity": "high"
   }
 }

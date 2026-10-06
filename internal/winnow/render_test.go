@@ -225,3 +225,19 @@ func TestRendererCutsBodyAtWord(t *testing.T) {
 			utf8.RuneCountInString(got), got[max(0, len(got)-12):], utf8.RuneCountInString(want), "word word…")
 	}
 }
+
+// The half of the cut counts characters, not bytes, so emoji before the
+// last space do not move the space into the second half.
+func TestRendererCutsLongWordAfterEmoji(t *testing.T) {
+	want := strings.Repeat("😀", 1000) + " " + strings.Repeat("A", 3094) + "…"
+	if got := issueDescription(t, strings.Repeat("😀", 1000)+" "+strings.Repeat("A", 5000)); got != want {
+		t.Errorf("description has %d characters, want %d", utf8.RuneCountInString(got), utf8.RuneCountInString(want))
+	}
+}
+
+func TestRendererCutsLongWordAfterHeading(t *testing.T) {
+	want := "### PoC\n" + strings.Repeat("A", 4087) + "…"
+	if got := issueDescription(t, "### PoC\n"+strings.Repeat("A", 5000)); got != want {
+		t.Errorf("description has %d characters and starts with %.20q, want %d", utf8.RuneCountInString(got), got, utf8.RuneCountInString(want))
+	}
+}

@@ -187,9 +187,10 @@ type ghPayload struct {
 		Validity              string `json:"validity"`
 	} `json:"alert"`
 	RepositoryAdvisory *struct {
-		HTMLURL  string `json:"html_url"`
-		Summary  string `json:"summary"`
-		Severity string `json:"severity"`
+		HTMLURL     string `json:"html_url"`
+		Summary     string `json:"summary"`
+		Description string `json:"description"`
+		Severity    string `json:"severity"`
 	} `json:"repository_advisory"`
 	// Forgejo also sets requested_reviewer on a review, so winnow reads it
 	// only for review_requested. A Forgejo assigned has no assignee.
@@ -254,7 +255,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		e.IsPull = new(p.Issue.PullRequest != nil)
 		issue = p.Issue.ghTopic
 	}
-	var alertURL string
+	var alertURL, report string
 	if a := p.Alert; a != nil {
 		alertURL = a.HTMLURL
 		// Each alert Event name fills only one of the sources in cmp.Or.
@@ -269,7 +270,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		}
 	}
 	if a := p.RepositoryAdvisory; a != nil {
-		alertURL = a.HTMLURL
+		alertURL, report = a.HTMLURL, a.Description
 		e.Alert = &Alert{Summary: a.Summary, Severity: a.Severity}
 	}
 	// The link goes to the most specific object in the payload.
@@ -286,7 +287,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 	case p.Review.HTMLURL != "":
 		e.Body = p.Review.Body
 	default:
-		e.Body = cmp.Or(p.Release.Body, p.Discussion.Body, issue.Body, p.PullRequest.Body)
+		e.Body = cmp.Or(report, p.Release.Body, p.Discussion.Body, issue.Body, p.PullRequest.Body)
 	}
 	e.Push = Push{Size: cmp.Or(p.TotalCommits, len(p.Commits)), Created: p.Created, Deleted: p.Deleted}
 	for _, c := range p.Commits {

@@ -134,12 +134,13 @@ func avatar(e *Event) string {
 
 // excerpt returns the clean body of e, cut at a word boundary to the Discord
 // limit. Only a new issue, pull request, discussion, comment, review, or
-// release shows the body.
+// release, and a reported or published repository advisory, shows the body.
 func excerpt(e *Event) string {
 	switch e.NameAction() {
 	case "issues.opened", "pull_request.opened", "issue_comment.created",
 		"pull_request_review_comment.created", "discussion_comment.created",
-		"pull_request_review.submitted", "discussion.created", "release.published":
+		"pull_request_review.submitted", "discussion.created", "release.published",
+		"repository_advisory.reported", "repository_advisory.published":
 		return cutWords(clean(e.Body), maxDescription)
 	}
 	return ""
@@ -339,6 +340,12 @@ func renderAlert(e *Event, kind string) embed {
 	}
 	add("Patched in", a.Patched)
 	add("Validity", a.Validity)
+	// A repository advisory also shows the report under the fields. The
+	// report gets the space that the fields and the blank line leave.
+	if body := excerpt(e); body != "" {
+		used := utf8.RuneCountInString(strings.Join(lines, "\n")) + 2
+		lines = append(lines, "", cutWords(body, maxDescription-used))
+	}
 	// titled sets the author. A security Event can come with no sender. Then
 	// the author is empty and the embed has no author.
 	em := titled(e, "")
@@ -363,15 +370,18 @@ func stateColor(action string) int {
 }
 
 // cutWords cuts s to at most n characters at the last word boundary. A text
-// with no boundary is cut in the word. A cut text ends with "…".
+// with no boundary in the second half of the cut is cut in the word, so a
+// long word after a short heading does not drop the text. A cut text ends
+// with "…".
 func cutWords(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
 		return s
 	}
-	head := string(r[:n])
-	if i := strings.LastIndexFunc(head, unicode.IsSpace); i > 0 {
-		return strings.TrimRightFunc(head[:i], unicode.IsSpace) + "…"
+	for i := n - 1; i > n/2; i-- {
+		if unicode.IsSpace(r[i]) {
+			return strings.TrimRightFunc(string(r[:i]), unicode.IsSpace) + "…"
+		}
 	}
 	return cut(s, n)
 }
