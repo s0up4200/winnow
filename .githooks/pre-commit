@@ -1,0 +1,12 @@
+#!/bin/sh
+# Runs the lint of CI before each commit. To turn it on for a clone, run
+# `git config core.hooksPath .githooks` once.
+#
+# The lint runs on a copy of the staged files, because the commit records
+# the staged files and not the working tree.
+set -e
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+git checkout-index -a --prefix="$tmp/"
+cd "$tmp"
+golangci-lint run ./...
