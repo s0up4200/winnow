@@ -198,6 +198,26 @@ func TestRendererCleansBody(t *testing.T) {
 	}
 }
 
+func TestRendererListsTable(t *testing.T) {
+	body := "This PR contains the following updates:\n\n| Package | Update | Change |\n|---|:---:|---|\n" +
+		"| ghcr.io/s0up4200/example-app | patch | `v0.1.1` → `v0.1.2` |\n| [hass](https://example.invalid/hass) | minor | `2026.9.3` → `2026.10.0` |\n\n---\n\nName | Size\n:-- | --:\na | 1\n\n| not a table |"
+	want := "This PR contains the following updates:\n\n**Package · Update · Change**\n" +
+		"- ghcr.io/s0up4200/example-app · patch · `v0.1.1` → `v0.1.2`\n- [hass](https://example.invalid/hass) · minor · `2026.9.3` → `2026.10.0`\n\n---\n\n**Name · Size**\n- a · 1\n\n| not a table |"
+	if got := issueDescription(t, body); got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
+func TestRendererKeepsCodeBlocks(t *testing.T) {
+	body := "<!-- x -->Example:\n\n```md\n| a | b |\n|---|---|\n<!-- kept -->\n\n\n\n```\n<br>after\n" +
+		"  ````\n```\n    ````\n<details>\n````\n~~~\nopen <b>to the end"
+	want := "Example:\n\n```md\n| a | b |\n|---|---|\n<!-- kept -->\n\n\n\n```\nafter\n" +
+		"  ````\n```\n    ````\n<details>\n````\n~~~\nopen <b>to the end"
+	if got := issueDescription(t, body); got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
 func TestRendererCutsBodyAtWord(t *testing.T) {
 	want := strings.Repeat("word ", 818) + "word…"
 	if got := issueDescription(t, strings.Repeat("word ", 1000)); got != want {

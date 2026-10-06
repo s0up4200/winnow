@@ -155,17 +155,90 @@ var (
 	htmlTag = regexp.MustCompile(`</?(?:a|b|i|u|s|p|br|hr|em|strong|del|ins|sub|sup|kbd|code|pre|div|span|details|summary|picture|source|video|center|blockquote|h[1-6]|ul|ol|li|table|thead|tbody|tr|th|td)\b[^>]*>`)
 	// blanks matches two or more blank lines.
 	blanks = regexp.MustCompile(`\n(?:[ \t]*\n){2,}`)
+	// tableRule matches the line under the header of a markdown table, for
+	// example |---|:--:|.
+	tableRule = regexp.MustCompile(`^\s*\|?(?:\s*:?-+:?\s*\|)+\s*(?::?-+:?\s*)?$`)
+	// fenceOpen matches the line that opens a fenced code block: three or
+	// more backticks or tildes, indented by at most three spaces.
+	fenceOpen = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})")
 )
 
 // clean removes the parts of a body that Discord cannot show: comments,
 // images, and HTML tags. It keeps the text in the tags and the markdown that
-// Discord shows, and collapses repeated blank lines.
+// Discord shows, changes tables to lists, and collapses repeated blank lines.
+// It does not change the text in a fenced code block. A block that does not
+// close continues to the end of the body, as on GitHub.
 func clean(body string) string {
-	body = strings.ReplaceAll(body, "\r\n", "\n")
-	body = junk.ReplaceAllString(body, "")
-	body = htmlTag.ReplaceAllString(body, "")
-	body = blanks.ReplaceAllString(body, "\n\n")
-	return strings.TrimSpace(body)
+	var out, prose []string
+	flush := func() {
+		if len(prose) > 0 {
+			out = append(out, cleanProse(strings.Join(prose, "\n")))
+			prose = nil
+		}
+	}
+	fence := "" // the opening fence of the current code block, or "" outside a block
+	for line := range strings.SplitSeq(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		open := fenceOpen.FindStringSubmatch(line)
+		switch {
+		case fence != "":
+			// The closing fence has the same character as the opening fence,
+			// is at least as long, and has no text after it.
+			if open != nil && open[1][0] == fence[0] && len(open[1]) >= len(fence) && strings.TrimSpace(line[len(open[0]):]) == "" {
+				fence = ""
+			}
+			out = append(out, line)
+		case open != nil:
+			flush()
+			fence = open[1]
+			out = append(out, line)
+		default:
+			prose = append(prose, line)
+		}
+	}
+	flush()
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+// cleanProse does the work of clean on text that is not in a code block.
+func cleanProse(text string) string {
+	text = junk.ReplaceAllString(text, "")
+	text = htmlTag.ReplaceAllString(text, "")
+	text = tables(text)
+	return blanks.ReplaceAllString(text, "\n\n")
+}
+
+// tables changes each markdown table to a bold header line and one bullet for
+// each row, because Discord does not show tables. A table starts with a line
+// that has a "|" and a rule line under it.
+//
+// ponytail: splits cells at each "|", so a pipe in inline code or an escaped
+// \| splits a cell. Parse the cells properly if a real body has one.
+func tables(body string) string {
+	lines := strings.Split(body, "\n")
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); {
+		if !strings.Contains(lines[i], "|") || i+1 == len(lines) || !tableRule.MatchString(lines[i+1]) {
+			out = append(out, lines[i])
+			i++
+			continue
+		}
+		out = append(out, "**"+cells(lines[i])+"**")
+		for i += 2; i < len(lines) && strings.Contains(lines[i], "|"); i++ {
+			out = append(out, "- "+cells(lines[i]))
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// cells returns the cells of a table row, joined with " · ".
+func cells(row string) string {
+	row = strings.TrimSpace(row)
+	row = strings.TrimSuffix(strings.TrimPrefix(row, "|"), "|")
+	var parts []string
+	for p := range strings.SplitSeq(row, "|") {
+		parts = append(parts, strings.TrimSpace(p))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func renderIssue(e *Event) embed {
