@@ -246,3 +246,49 @@ func TestRendererCutsLongWordAfterHeading(t *testing.T) {
 		t.Errorf("description has %d characters and starts with %.20q, want %d", utf8.RuneCountInString(got), got, utf8.RuneCountInString(want))
 	}
 }
+
+func TestRendererKeepsInlineCode(t *testing.T) {
+	body := "Use the `<details>` tag, not <b>bold</b>.\n`<!-- kept -->` and ``<img src=\"x\"> ` `` stay.<!-- a `code` comment goes -->\n" +
+		"<a title=\"`x`\">link</a>![`y`](https://example.invalid/a.png)"
+	want := "Use the `<details>` tag, not bold.\n`<!-- kept -->` and ``<img src=\"x\"> ` `` stay.\nlink"
+	if got := issueDescription(t, body); got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
+// A cut in a code block closes the block with its opening fence.
+func TestRendererClosesCutCodeBlock(t *testing.T) {
+	for _, fence := range []string{"```", "~~~", "````"} {
+		t.Run(fence, func(t *testing.T) {
+			got := issueDescription(t, "Logs:\n"+fence+"go\n"+strings.Repeat("line ", 1000)+"\n"+fence+"\nafter")
+			if n := utf8.RuneCountInString(got); n > maxDescription {
+				t.Errorf("description has %d characters, want at most %d", n, maxDescription)
+			}
+			if !strings.HasSuffix(got, "line…\n"+fence) || strings.Count(got, fence)%2 != 0 {
+				t.Errorf("description ends in %q, want an even number of fences and the end line…\\n%s", got[max(0, len(got)-20):], fence)
+			}
+		})
+	}
+}
+
+// A cut next to a fence keeps the limit and adds no fence that opens a block.
+func TestCutWordsAtFence(t *testing.T) {
+	for _, tt := range []struct {
+		s    string
+		n    int
+		want string
+	}{
+		// The shorter cut ends in an earlier block with a longer fence.
+		{"`````\nx\n`````\n```\ny y y ", 18, "`````\nx…\n`````"},
+		{"`````\nx\n`````\n```\ny y y ", 19, "`````\nx\n`````\n…"},
+		// The cut is right after a closing fence or an opening fence. "…"
+		// on the fence line makes the fence text.
+		{"```\nx\n```\n" + strings.Repeat("A", 20), 12, "```\nx\n```\n…"},
+		{"text\n```go\n" + strings.Repeat("A", 20), 16, "text\n```go\n…\n```"},
+	} {
+		got := cutWords(tt.s, tt.n)
+		if got != tt.want || utf8.RuneCountInString(got) > tt.n {
+			t.Errorf("cutWords(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
+		}
+	}
+}

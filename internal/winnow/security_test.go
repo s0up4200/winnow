@@ -92,3 +92,25 @@ func TestAdvisoryReportCutsLongWord(t *testing.T) {
 		t.Errorf("description has %d characters and starts with %.20q, want %d", utf8.RuneCountInString(got), got, utf8.RuneCountInString(want))
 	}
 }
+
+// A report that is cut in a code block closes the block.
+func TestAdvisoryReportClosesCutCodeBlock(t *testing.T) {
+	h := newHarness(t, quiConfig)
+	payload := bytes.Replace(fixture(t, "github/repository_advisory_published"),
+		[]byte("### Summary\\r\\nThe upload handler"), []byte("```\\n"+strings.Repeat("line ", 1000)), 1)
+	if got := h.do(signedDelivery("github-autobrr", "repository_advisory", payload)).Code; got != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", got)
+	}
+	var msg struct {
+		Embeds []struct {
+			Description string `json:"description"`
+		} `json:"embeds"`
+	}
+	if err := json.Unmarshal(h.waitDiscord().Body, &msg); err != nil {
+		t.Fatal(err)
+	}
+	got := msg.Embeds[0].Description
+	if n := utf8.RuneCountInString(got); n > maxDescription || !strings.HasSuffix(got, "line…\n```") {
+		t.Errorf("description has %d characters and ends in %q, want at most %d that end in line…\\n```", n, got[max(0, len(got)-20):], maxDescription)
+	}
+}

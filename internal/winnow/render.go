@@ -151,13 +151,21 @@ func excerpt(e *Event) string {
 }
 
 var (
-	// junk matches HTML comments, linked images, image markdown, and <img>
-	// tags. The linked image comes first, so that no empty link stays.
-	junk = regexp.MustCompile(`(?is)<!--.*?-->|\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>`)
-	// htmlTag matches a tag with a known HTML name, for example <details>
-	// or </summary>. Other names stay, so that code such as Vec<String>
-	// stays as it is.
-	htmlTag = regexp.MustCompile(`</?(?:a|b|i|u|s|p|br|hr|em|strong|del|ins|sub|sup|kbd|code|pre|div|span|details|summary|picture|source|video|center|blockquote|h[1-6]|ul|ol|li|table|thead|tbody|tr|th|td)\b[^>]*>`)
+	// markup matches the parts that clean removes from prose, and inline
+	// code, which clean keeps. The parts are HTML comments, linked images,
+	// image markdown, <img> tags, and tags with a known HTML name, for
+	// example <details> or </summary>. Other tag names stay, so that code
+	// such as Vec<String> stays as it is. The linked image comes before the
+	// image, so that no empty link stays. The match that starts first wins,
+	// so code can hold a tag, and a tag or an image can hold code.
+	//
+	// ponytail: a code span is on one line and has a run of one or two
+	// backticks, and an escaped \` starts a span. Scan the backtick runs as
+	// CommonMark does if a real body breaks this.
+	markup = regexp.MustCompile("(?s)<!--.*?-->" +
+		`|\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)|(?i:<img\b[^>]*>)` +
+		`|</?(?:a|b|i|u|s|p|br|hr|em|strong|del|ins|sub|sup|kbd|code|pre|div|span|details|summary|picture|source|video|center|blockquote|h[1-6]|ul|ol|li|table|thead|tbody|tr|th|td)\b[^>]*>` +
+		"|``[^\n]+?``|`[^`\n]+`")
 	// blanks matches two or more blank lines.
 	blanks = regexp.MustCompile(`\n(?:[ \t]*\n){2,}`)
 	// tableRule matches the line under the header of a markdown table, for
@@ -171,8 +179,8 @@ var (
 // clean removes the parts of a body that Discord cannot show: comments,
 // images, and HTML tags. It keeps the text in the tags and the markdown that
 // Discord shows, changes tables to lists, and collapses repeated blank lines.
-// It does not change the text in a fenced code block. A block that does not
-// close continues to the end of the body, as on GitHub.
+// It does not change the text in a fenced code block or in inline code. A
+// block that does not close continues to the end of the body, as on GitHub.
 func clean(body string) string {
 	var out, prose []string
 	flush := func() {
@@ -183,20 +191,12 @@ func clean(body string) string {
 	}
 	fence := "" // the opening fence of the current code block, or "" outside a block
 	for line := range strings.SplitSeq(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
-		open := fenceOpen.FindStringSubmatch(line)
-		switch {
-		case fence != "":
-			// The closing fence has the same character as the opening fence,
-			// is at least as long, and has no text after it.
-			if open != nil && open[1][0] == fence[0] && len(open[1]) >= len(fence) && strings.TrimSpace(line[len(open[0]):]) == "" {
-				fence = ""
-			}
-			out = append(out, line)
-		case open != nil:
+		inBlock := fence != ""
+		fence = nextFence(fence, line)
+		if inBlock || fence != "" {
 			flush()
-			fence = open[1]
 			out = append(out, line)
-		default:
+		} else {
 			prose = append(prose, line)
 		}
 	}
@@ -204,10 +204,41 @@ func clean(body string) string {
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
+// nextFence returns the fence after line. fence is the opening fence of the
+// code block before line, or "" outside a block. The result is the opening
+// fence of the block that line opens or continues, or "" when line closes a
+// block or is outside one.
+func nextFence(fence, line string) string {
+	open := fenceOpen.FindStringSubmatch(line)
+	switch {
+	case fence == "" && open != nil:
+		return open[1]
+	// The closing fence has the same character as the opening fence, is at
+	// least as long, and has no text after it.
+	case fence != "" && open != nil && open[1][0] == fence[0] && len(open[1]) >= len(fence) && strings.TrimSpace(line[len(open[0]):]) == "":
+		return ""
+	}
+	return fence
+}
+
+// openFence returns the opening fence of the code block that is open at the
+// end of s, or "" when no block is open.
+func openFence(s string) string {
+	fence := ""
+	for line := range strings.SplitSeq(s, "\n") {
+		fence = nextFence(fence, line)
+	}
+	return fence
+}
+
 // cleanProse does the work of clean on text that is not in a code block.
 func cleanProse(text string) string {
-	text = junk.ReplaceAllString(text, "")
-	text = htmlTag.ReplaceAllString(text, "")
+	text = markup.ReplaceAllStringFunc(text, func(m string) string {
+		if m[0] == '`' {
+			return m
+		}
+		return ""
+	})
 	text = tables(text)
 	return blanks.ReplaceAllString(text, "\n\n")
 }
@@ -376,8 +407,33 @@ func stateColor(action string) int {
 // cutWords cuts s to at most n characters at the last word boundary. A text
 // with no boundary in the second half of the cut is cut in the word, so a
 // long word after a short heading does not drop the text. A cut text ends
-// with "…".
+// with "…". A cut in a fenced code block closes the block with the opening
+// fence on a new line, and the result with the fence has at most n
+// characters.
 func cutWords(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	for m := n; ; {
+		c := strings.TrimSuffix(cutAtWord(s, m), "…")
+		end := "…"
+		// "…" on a fence line makes the fence text, so it goes on a new line.
+		if fenceOpen.MatchString(c[strings.LastIndexByte(c, '\n')+1:]) {
+			end = "\n…"
+		}
+		if fence := openFence(c); fence != "" {
+			end += "\n" + fence
+		}
+		if utf8.RuneCountInString(c+end) <= n {
+			return c + end
+		}
+		// A shorter cut can end in a different block, so check it again.
+		m = max(1, min(m-1, n+1-utf8.RuneCountInString(end)))
+	}
+}
+
+// cutAtWord does the cut of cutWords, with no closing fence.
+func cutAtWord(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
 		return s
