@@ -186,9 +186,10 @@ routes:
 	}
 }
 
-// TestSampleConfigurationLoads keeps winnow.example.yaml valid: with its
-// variables set, `winnow check` passes on it.
-func TestSampleConfigurationLoads(t *testing.T) {
+// TestSampleConfiguration keeps winnow.example.yaml valid: with its
+// variables set, `winnow check` passes on it. It also checks which Route
+// gets an Event.
+func TestSampleConfiguration(t *testing.T) {
 	for _, name := range []string{
 		"WINNOW_SECRET_GITHUB_AUTOBRR", "WINNOW_SECRET_GITHUB_S0UP4200", "WINNOW_SECRET_FORGEJO",
 		"WINNOW_DISCORD_SECURITY", "WINNOW_DISCORD_AUTOBRR", "WINNOW_DISCORD_QUI",
@@ -200,7 +201,48 @@ func TestSampleConfigurationLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, errs, warns := Load(data); len(errs) > 0 || len(warns) > 0 {
+	cfg, errs, warns := Load(data)
+	if len(errs) > 0 || len(warns) > 0 {
 		t.Fatalf("errors = %v, warnings = %v, want none", errs, warns)
+	}
+	qui := func(name, action string) Event {
+		return Event{Source: "github-autobrr", Forge: "github", Name: name, Action: action, Repo: "autobrr/qui", Owner: "autobrr"}
+	}
+	forgejo := func(name, action string) Event {
+		return Event{Source: "forgejo", Forge: "forgejo", Name: name, Action: action, Repo: "soup/git-tui", Owner: "soup"}
+	}
+	tests := []struct {
+		ev   Event
+		want string
+	}{
+		{qui("push", ""), "noise"},
+		{qui("create", ""), "noise"},
+		{qui("workflow_run", "completed"), "noise"},
+		{qui("projects_v2_item", "created"), "noise"},
+		{qui("installation_repositories", "added"), "noise"},
+		{qui("watch", "started"), "stars-forks"},
+		{qui("star", "created"), "qui"},
+		{qui("star", "deleted"), "noise"},
+		{qui("issues", "opened"), "qui"},
+		{qui("issues", "edited"), "noise"},
+		{qui("issues", "assigned"), "qui"},
+		{qui("issues", "unassigned"), "noise"},
+		{qui("pull_request", "synchronize"), "noise"},
+		{qui("pull_request", "ready_for_review"), "qui"},
+		{qui("release", "created"), "noise"},
+		{qui("release", "published"), "qui-releases"},
+		{qui("secret_scanning_alert", "unassigned"), "security"},
+		{qui("repository_vulnerability_alert", "create"), "noise"},
+		{forgejo("workflow_run_success", ""), "noise"},
+		{forgejo("action_run_failure", ""), "soup"},
+		{forgejo("pull_request", "label_updated"), "noise"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ev.NameAction(), func(t *testing.T) {
+			r := cfg.route(&tt.ev)
+			if r == nil || r.Name != tt.want {
+				t.Errorf("route = %v, want %s", r, tt.want)
+			}
+		})
 	}
 }

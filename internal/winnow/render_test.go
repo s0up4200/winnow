@@ -125,6 +125,11 @@ func TestRenderers(t *testing.T) {
 			"url": "https://example.invalid/Codertocat/Hello-World",
 			"color": 14922561
 		}`},
+		{"star from the star Event", "star", "star_created", `{` + author + `,
+			"title": "[Codertocat/Hello-World] New star",
+			"url": "https://example.invalid/Codertocat/Hello-World",
+			"color": 14922561
+		}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

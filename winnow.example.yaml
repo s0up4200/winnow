@@ -29,10 +29,70 @@ routes:
   - name: stars-forks
     drop: true
     match: { event: [watch, fork] }
-  - name: ci-noise
+  # CI, packages, pushes, and administration. "workflow_*" also matches the
+  # Forgejo workflow_run_<state> and workflow_job_<state> names.
+  - name: noise
     drop: true
     match:
-      event: [workflow_run, workflow_job, check_run, check_suite, status, deployment, deployment_status, page_build]
+      - event:
+          - "workflow_*"
+          - "check_*"
+          - "deployment*"
+          - status
+          - page_build
+          - action_run_success
+          - package
+          - registry_package
+          - push
+          - create
+          - delete
+          - member
+          - membership
+          - team
+          - organization
+          - repository
+          - public
+          - branch_protection_rule
+          - repository_ruleset
+          - "installation*"
+          - meta
+          - deploy_key
+          - "project*"
+          - milestone
+          - label
+          - sub_issues
+          - issue_dependencies
+          - pull_request_review_thread
+          # The legacy twin of dependabot_alert.
+          - repository_vulnerability_alert
+      # Housekeeping on issues, pull requests, comments, and discussions.
+      # assigned stays, because it pings the assignee.
+      - action:
+          - edited
+          - deleted
+          - labeled
+          - unlabeled
+          - label_updated
+          - label_cleared
+          - unassigned
+          - milestoned
+          - demilestoned
+          - locked
+          - unlocked
+          - pinned
+          - unpinned
+          - transferred
+          - typed
+          - untyped
+          - synchronize
+          - auto_merge_enabled
+          - auto_merge_disabled
+          - enqueued
+          - dequeued
+          - converted_to_draft
+          - review_request_removed
+      # One release sends several Events. Only published goes to Discord.
+      - { event: release, not: { action: published } }
   - name: qui-releases
     to: [releases, qui]
     match: { event: release, action: published, repo: autobrr/qui }

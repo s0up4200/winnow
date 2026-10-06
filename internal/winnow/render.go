@@ -63,9 +63,13 @@ func render(e *Event, users map[string]string) message {
 		em = titled(e, "Release "+words(e.Action))
 	case "fork":
 		em = titled(e, "Fork created")
-	case "watch":
-		em = titled(e, "New star")
-		em.Color = colorStar
+	case "watch", "star":
+		// GitHub sends watch.started and star.created for one star. An
+		// unstar, star.deleted, gets the Fallback message.
+		if e.Action != "deleted" {
+			em = titled(e, "New star")
+			em.Color = colorStar
+		}
 	case "dependabot_alert":
 		em = renderAlert(e, "Dependabot alert")
 	case "code_scanning_alert":
