@@ -38,8 +38,8 @@ const (
 // the Event name. An Event name with no Renderer, or a Renderer that returns
 // the zero embed, gets the Fallback message. The Poster of each message is
 // the forge of the Event. The message pings the target of e when users holds
-// the target and the target is not the sender. A Fallback message never
-// pings.
+// the target and the target is not the sender. With no User map, the message
+// never pings. A Fallback message never pings.
 func render(e *Event, users map[string]string) message {
 	var em embed
 	switch e.Name {

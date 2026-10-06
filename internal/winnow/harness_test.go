@@ -2,6 +2,7 @@ package winnow
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -103,7 +104,14 @@ func newHarness(t *testing.T, config string) *harness {
 		s.Discord, s.retryBase = fake.URL+"/"+name, testRetryBase
 		cfg.Sinks[name] = s
 	}
-	h.handler = New(cfg, slog.New(slog.NewJSONHandler(h.logs, nil)))
+	srv := New(cfg, slog.New(slog.NewJSONHandler(h.logs, nil)))
+	// A short drain limit stops a worker in a long retry wait fast.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		srv.Shutdown(ctx)
+	})
+	h.handler = srv
 	return h
 }
 
