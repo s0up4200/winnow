@@ -257,6 +257,35 @@ On Forgejo, add a webhook to the organization or the repository:
 
 The Forgejo "Test delivery" button sends a normal push Event.
 
+## Metrics
+
+Prometheus can scrape `GET /metrics` on the existing Winnow listener. The endpoint needs no configuration switch or separate port.
+Keep access on the internal network. The Cloudflare Tunnel must expose only `/hook/`, so that `/metrics` stays internal.
+
+Winnow exposes only these two counters. It does not expose Go runtime or process metrics.
+Every configured Sink and Source has zero-valued series at startup for all its reasons or statuses.
+
+| Counter | Labels | Values |
+| --- | --- | --- |
+| `winnow_sink_delivery_failures_total` | `sink`, `reason` | Configured Sink name, and `queue_full`, `rejected`, `retries_exhausted`, or `shutdown` |
+| `winnow_webhook_rejections_total` | `source`, `status` | Configured Source name, and `400`, `401`, `405`, `413`, or `415` |
+
+The Sink counter counts one failed delivery cycle to one Sink, after Discord retries finish or when enqueue fails.
+An Event sent to two Sinks can produce two failures. Live Events, accepted Backfills, Digests, and Sweep alert messages all count.
+A later Digest retry can fail again and add another count. A later successful send does not remove an earlier failure.
+Successful sends, individual Discord retries, intentional Route drops, unmatched Events, and excluded Backfills do not count.
+Sweep API failures and store failures do not count as Sink delivery failures.
+
+The webhook counter counts each rejected request for a configured Source once, under its response status.
+Status `400` includes body-read and parse errors. Status `401` includes missing and bad signatures.
+Status `405` means a wrong method, `413` means an oversized body, and `415` means an unsupported content type.
+Unknown Sources return `404` and do not create series. Unrelated paths, health checks, metrics scrapes, and successful webhook requests do not count.
+
+Each Server keeps its own counters in memory. The counters reset on restart.
+Failures after the last successful scrape can disappear before Prometheus observes them.
+The listener closes before the Sink queues drain, so shutdown failures can occur after `/metrics` stops serving.
+These counters support operational alerts. They are not a complete audit of lost messages or a count of unique permanently lost Events or Digests.
+
 ## Logs
 
 Winnow logs `matched` at INFO when a Route selects Sinks for an Event. This line does not confirm delivery to Discord. Dropped and unmatched Events are logged at DEBUG. The default level is DEBUG. Start winnow with `--debug=false` to log only INFO and higher levels. With Docker Compose, add `command: ["--debug=false"]` to the service.

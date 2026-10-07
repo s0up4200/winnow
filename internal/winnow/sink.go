@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // queueSize is the number of messages that one Sink queue holds.
@@ -14,12 +16,13 @@ const queueSize = 100
 // outbox delivers routed Events to their Sinks. It owns one queue and one
 // worker for each Sink, and it writes each failed delivery line.
 type outbox struct {
-	sinks map[string]*sink
-	log   *slog.Logger
-	wg    sync.WaitGroup     // the Sink workers
-	mu    sync.RWMutex       // deliver reads drain and enqueues under the read lock
-	drain chan struct{}      // closed when Shutdown starts
-	stop  context.CancelFunc // stops the sends when the drain time ends
+	sinks    map[string]*sink
+	log      *slog.Logger
+	failures *prometheus.CounterVec
+	wg       sync.WaitGroup     // the Sink workers
+	mu       sync.RWMutex       // deliver reads drain and enqueues under the read lock
+	drain    chan struct{}      // closed when Shutdown starts
+	stop     context.CancelFunc // stops the sends when the drain time ends
 }
 
 // sink is one Sink: a buffered queue of rendered messages and the Discord
@@ -58,9 +61,9 @@ func (f *failure) Error() string {
 
 // newOutbox makes one Discord sender, one queue, and one worker for each Sink
 // of cfg.
-func newOutbox(cfg *Config, log *slog.Logger) *outbox {
+func newOutbox(cfg *Config, log *slog.Logger, failures *prometheus.CounterVec) *outbox {
 	ctx, stop := context.WithCancel(context.Background())
-	o := &outbox{sinks: map[string]*sink{}, log: log, drain: make(chan struct{}), stop: stop}
+	o := &outbox{sinks: map[string]*sink{}, log: log, failures: failures, drain: make(chan struct{}), stop: stop}
 	for name, sc := range cfg.Sinks {
 		sk := &sink{name: name, queue: make(chan entry, queueSize), discord: newDiscordSender(sc)}
 		if sc.Mentions {
@@ -157,6 +160,7 @@ func (o *outbox) run(ctx context.Context, sk *sink) {
 
 // fail gives f to en.done and writes the failed delivery line for en on sk.
 func (o *outbox) fail(sk *sink, en entry, f *failure) {
+	o.failures.WithLabelValues(sk.name, f.reason).Inc()
 	if en.done != nil {
 		en.done(f)
 	}

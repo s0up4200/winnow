@@ -2,10 +2,13 @@ package winnow
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -124,6 +127,11 @@ func TestRequestChecks(t *testing.T) {
 			req.Header.Del("X-GitHub-Event")
 			return req
 		}, http.StatusBadRequest},
+		{"body read error", func() *http.Request {
+			req := signedDelivery("github-autobrr", "label", label)
+			req.Body = io.NopCloser(brokenBody{})
+			return req
+		}, http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -131,9 +139,21 @@ func TestRequestChecks(t *testing.T) {
 			if got := h.do(tt.req()).Code; got != tt.want {
 				t.Errorf("status = %d, want %d", got, tt.want)
 			}
+			status, count := "401", float64(0)
+			if tt.want >= 400 && tt.want != http.StatusNotFound {
+				status, count = strconv.Itoa(tt.want), 1
+			}
+			h.assertMetrics("qui", "rejected", 0, "github-autobrr", status, count)
+			if got := len(h.metrics()["winnow_webhook_rejections_total"].Metric); got != 5 {
+				t.Errorf("rejection series = %d, want 5", got)
+			}
 		})
 	}
 }
+
+type brokenBody struct{}
+
+func (brokenBody) Read([]byte) (int, error) { return 0, errors.New("read failed") }
 
 func TestBodyOverLimit(t *testing.T) {
 	h := newHarness(t, quiConfig)
@@ -146,6 +166,7 @@ func TestBodyOverLimit(t *testing.T) {
 	if len(lines) != 1 || lines[0]["source"] != "github-autobrr" {
 		t.Errorf("log lines = %v, want one line for source github-autobrr", lines)
 	}
+	h.assertMetrics("qui", "rejected", 0, "github-autobrr", "413", 1)
 }
 
 func TestPingMakesNoEvent(t *testing.T) {
@@ -177,6 +198,7 @@ func TestUnmatchedEvent(t *testing.T) {
 	if d["level"] != "DEBUG" || d["outcome"] != "unmatched" || d["route"] != "" || !reflect.DeepEqual(d["sinks"], []any{}) {
 		t.Errorf("decision line = %v, want DEBUG outcome unmatched with empty route and sinks", d)
 	}
+	h.assertMetrics("qui", "rejected", 0, "github-autobrr", "401", 0)
 }
 
 func TestDecisionLogLevels(t *testing.T) {

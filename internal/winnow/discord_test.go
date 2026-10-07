@@ -44,6 +44,7 @@ func TestRejectedReplyIsNotRetried(t *testing.T) {
 	if n := len(h.discord); n != 1 {
 		t.Errorf("fake Discord got %d requests, want 1", n)
 	}
+	h.assertMetrics("qui", "rejected", 1, "github-autobrr", "401", 0)
 }
 
 func TestServerErrorRetriesRunOut(t *testing.T) {
@@ -71,6 +72,7 @@ func TestServerErrorRetriesRunOut(t *testing.T) {
 		}
 		prev = r
 	}
+	h.assertMetrics("qui", "retries_exhausted", 1, "github-autobrr", "401", 0)
 }
 
 func TestNetworkErrorRetriesRunOut(t *testing.T) {
@@ -86,6 +88,7 @@ func TestNetworkErrorRetriesRunOut(t *testing.T) {
 	if logs := h.logs.String(); strings.Contains(logs, "http://") {
 		t.Errorf("logs hold the Sink URL:\n%s", logs)
 	}
+	h.assertMetrics("qui", "retries_exhausted", 1, "github-autobrr", "401", 0)
 }
 
 func TestRateLimitedMessageIsSentAgain(t *testing.T) {
@@ -105,6 +108,7 @@ func TestRateLimitedMessageIsSentAgain(t *testing.T) {
 	if gap := r2.At.Sub(r1.At); gap < 100*time.Millisecond {
 		t.Errorf("sent again after %v, want at least retry_after 100ms", gap)
 	}
+	h.assertMetrics("qui", "rejected", 0, "github-autobrr", "401", 0)
 }
 
 func TestEmptyRateLimitBucketDelaysNextSend(t *testing.T) {
@@ -121,6 +125,7 @@ func TestEmptyRateLimitBucketDelaysNextSend(t *testing.T) {
 	if gap := r2.At.Sub(r1.At); gap < 100*time.Millisecond {
 		t.Errorf("next send after %v, want at least X-RateLimit-Reset-After 100ms", gap)
 	}
+	h.assertMetrics("qui", "rejected", 0, "github-autobrr", "401", 0)
 }
 
 func TestFullQueueDropsNewEvent(t *testing.T) {
@@ -139,6 +144,7 @@ func TestFullQueueDropsNewEvent(t *testing.T) {
 	if f["reason"] != "queue_full" || f["sink"] != "qui" || f["attempts"] != 0.0 || f["status"] != 0.0 {
 		t.Errorf("failed delivery line = %v, want queue_full for sink qui with no attempts", f)
 	}
+	h.assertMetrics("qui", "queue_full", 1, "github-autobrr", "401", 0)
 }
 
 func TestAttemptLimitCountsRateLimits(t *testing.T) {
@@ -155,6 +161,7 @@ func TestAttemptLimitCountsRateLimits(t *testing.T) {
 	if n := len(h.discord); n != 5 {
 		t.Errorf("fake Discord got %d requests, want 5", n)
 	}
+	h.assertMetrics("qui", "retries_exhausted", 1, "github-autobrr", "401", 0)
 }
 
 // shutdown stops the Sink workers of h as winnow does on SIGTERM, with
@@ -186,6 +193,7 @@ func TestShutdownSendsQueuedEvents(t *testing.T) {
 	if f := h.linesWith("delivery failed"); len(f) > 0 {
 		t.Errorf("failed delivery lines = %v, want none", f)
 	}
+	h.assertMetrics("qui", "shutdown", 0, "github-autobrr", "401", 0)
 }
 
 func TestShutdownLogsUnsentEvents(t *testing.T) {
@@ -216,6 +224,7 @@ func TestShutdownLogsUnsentEvents(t *testing.T) {
 				t.Fatalf("shutdown took %v, want about the 100ms drain limit", took)
 			}
 
+			h.assertMetrics("qui", "shutdown", float64(len(tt.want)), "github-autobrr", "401", 0)
 			lines := h.linesWith("delivery failed")
 			if len(lines) != len(tt.want) {
 				t.Fatalf("got %d failed delivery lines, want %d: %v", len(lines), len(tt.want), lines)
@@ -241,4 +250,5 @@ func TestEventAfterShutdownIsLogged(t *testing.T) {
 	if f["reason"] != "shutdown" || f["sink"] != "qui" || f["delivery"] != testDelivery || f["attempts"] != 0.0 {
 		t.Errorf("failed delivery line = %v, want reason shutdown with no attempts", f)
 	}
+	h.assertMetrics("qui", "shutdown", 1, "github-autobrr", "401", 0)
 }

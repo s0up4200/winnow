@@ -9,7 +9,11 @@ import (
 	"mime"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // maxBody is the largest delivery that winnow reads. GitHub sends at most
@@ -20,12 +24,13 @@ const maxBody = 25 << 20
 // delivery, and it stores each Event that a Digest matches.
 type Server struct {
 	*http.ServeMux
-	cfg    *Config
-	log    *slog.Logger
-	outbox *outbox
-	store  *store           // nil when cfg has no Digests and no Sweep
-	now    func() time.Time // the clock; tests set a fixed time
-	tries  tries
+	cfg               *Config
+	log               *slog.Logger
+	outbox            *outbox
+	store             *store           // nil when cfg has no Digests and no Sweep
+	now               func() time.Time // the clock; tests set a fixed time
+	tries             tries
+	webhookRejections *prometheus.CounterVec
 	// sweepers holds the Sweep of each Source with a sweep block, in the
 	// order of the Source names.
 	sweepers []*sweeper
@@ -48,7 +53,28 @@ func New(cfg *Config, log *slog.Logger) (*Server, error) {
 		}
 		s.store = st
 	}
-	s.outbox = newOutbox(cfg, log)
+	registry := prometheus.NewRegistry()
+	sinkFailures := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "winnow_sink_delivery_failures_total",
+		Help: "Failed delivery cycles to one Sink, after retries or failed enqueue.",
+	}, []string{"sink", "reason"})
+	s.webhookRejections = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "winnow_webhook_rejections_total",
+		Help: "Webhook requests rejected for a configured Source by HTTP status.",
+	}, []string{"source", "status"})
+	registry.MustRegister(sinkFailures, s.webhookRejections)
+	for name := range cfg.Sinks {
+		for _, reason := range []string{"queue_full", "rejected", "retries_exhausted", "shutdown"} {
+			sinkFailures.WithLabelValues(name, reason)
+		}
+	}
+	for name := range cfg.Sources {
+		for _, status := range []string{"400", "401", "405", "413", "415"} {
+			s.webhookRejections.WithLabelValues(name, status)
+		}
+	}
+	s.outbox = newOutbox(cfg, log, sinkFailures)
+	s.Handle("GET /metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	// The pattern has no method, so that an unknown Source gets 404 before
 	// a wrong method gets 405.
 	s.HandleFunc("/hook/{source}", s.hook)
@@ -88,30 +114,30 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.reject(w, name, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		s.reject(w, name, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			s.log.Warn("body too large", "source", name, "limit", maxBody)
-			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+			s.reject(w, name, "body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
-		http.Error(w, "cannot read body", http.StatusBadRequest)
+		s.reject(w, name, "cannot read body", http.StatusBadRequest)
 		return
 	}
 	if !validSignature(src.Secret, body, r.Header) {
-		http.Error(w, "bad signature", http.StatusUnauthorized)
+		s.reject(w, name, "bad signature", http.StatusUnauthorized)
 		return
 	}
 	e, err := parseEvent(name, s.cfg.Bots, r.Header, body)
 	if err != nil {
-		http.Error(w, "cannot parse delivery: "+err.Error(), http.StatusBadRequest)
+		s.reject(w, name, "cannot parse delivery: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if e.Name == "ping" {
@@ -171,4 +197,10 @@ func (s *Server) logDecision(e *Event, outcome, route string, sinks []string, ex
 		level = slog.LevelInfo
 	}
 	s.log.Log(context.Background(), level, "routed", slices.Concat(attrs, e.logAttrs(), extra)...)
+}
+
+// reject counts one rejected request for a configured Source.
+func (s *Server) reject(w http.ResponseWriter, source, message string, status int) {
+	s.webhookRejections.WithLabelValues(source, strconv.Itoa(status)).Inc()
+	http.Error(w, message, status)
 }

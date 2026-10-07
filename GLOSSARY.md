@@ -28,6 +28,10 @@ _Avoid_: destination, target, filter
 A delivery target, for example the webhook URL of one Discord channel.
 _Avoid_: output, channel, destination
 
+**Sink delivery failure**:
+One unsuccessful delivery of a message to one Sink, including all retries within that delivery. A later delivery of the same Digest can still succeed.
+_Avoid_: dropped message, lost Event
+
 **Renderer**:
 A part of winnow that turns one kind of Event into a Discord message.
 _Avoid_: formatter, template
