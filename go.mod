@@ -3,8 +3,9 @@ module github.com/s0up4200/winnow
 go 1.27.1
 
 require (
-	github.com/lmittmann/tint v1.2.0
+	github.com/lmittmann/tint v1.2.1
 	go.yaml.in/yaml/v3 v3.0.5
+	modernc.org/sqlite v1.59.0
 )
 
 require (
@@ -17,5 +18,4 @@ require (
 	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.59.0 // indirect
 )
