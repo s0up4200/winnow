@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: saturday
+      time: "07:00"
+    groups:
+      github:
+        patterns:
+          - "*"
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      golang:
+        patterns:
+          - "*"
+    cooldown:
+      default-days: 7
+      semver-patch-days: 3
+      semver-major-days: 14
