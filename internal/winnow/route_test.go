@@ -74,8 +74,8 @@ routes:
 		t.Fatalf("status = %d, want 204", got)
 	}
 	d := h.decision()
-	if d["outcome"] != "dropped" || d["route"] != "#1" || !reflect.DeepEqual(d["sinks"], []any{}) {
-		t.Errorf("decision line = %v, want outcome dropped, route #1, no sinks", d)
+	if d["level"] != "DEBUG" || d["outcome"] != "dropped" || d["route"] != "#1" || !reflect.DeepEqual(d["sinks"], []any{}) {
+		t.Errorf("decision line = %v, want DEBUG outcome dropped, route #1, no sinks", d)
 	}
 }
 

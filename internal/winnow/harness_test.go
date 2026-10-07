@@ -130,7 +130,7 @@ func (h *harness) start(config string) {
 		}
 	}
 	cfg.Database = filepath.Join(h.dir, "winnow.db")
-	srv, err := New(cfg, slog.New(slog.NewJSONHandler(h.logs, nil)))
+	srv, err := New(cfg, slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		h.t.Fatal(err)
 	}

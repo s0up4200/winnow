@@ -141,7 +141,7 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	s.logDecision(e, "sent", route.Name, route.To)
+	s.logDecision(e, "matched", route.Name, route.To)
 	s.outbox.deliver(e, route)
 	w.WriteHeader(http.StatusAccepted)
 }
@@ -166,5 +166,9 @@ func (s *Server) storeEvent(e *Event, at time.Time) {
 // holds more fields for the line.
 func (s *Server) logDecision(e *Event, outcome, route string, sinks []string, extra ...any) {
 	attrs := []any{"outcome", outcome, "route", route, "sinks", sinks, "sender", e.Sender}
-	s.log.Info("routed", slices.Concat(attrs, e.logAttrs(), extra)...)
+	level := slog.LevelDebug
+	if outcome == "matched" {
+		level = slog.LevelInfo
+	}
+	s.log.Log(context.Background(), level, "routed", slices.Concat(attrs, e.logAttrs(), extra)...)
 }

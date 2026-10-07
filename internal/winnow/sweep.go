@@ -241,7 +241,7 @@ func (s *Server) backfill(source string, m delivery, d *delivery) bool {
 	case !route.Backfill:
 		s.logDecision(e, "dropped", route.Name, []string{}, "backfill", true)
 	default:
-		s.logDecision(e, "sent", route.Name, route.To, "backfill", true)
+		s.logDecision(e, "matched", route.Name, route.To, "backfill", true)
 		s.outbox.deliver(e, route)
 	}
 	return true

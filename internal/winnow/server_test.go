@@ -2,6 +2,7 @@ package winnow
 
 import (
 	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -53,7 +54,7 @@ func TestDeliveryBecomesFallbackMessage(t *testing.T) {
 	want := map[string]any{
 		"level":    "INFO",
 		"msg":      "routed",
-		"outcome":  "sent",
+		"outcome":  "matched",
 		"route":    "qui",
 		"sinks":    []any{"qui"},
 		"source":   "github-autobrr",
@@ -173,8 +174,33 @@ func TestUnmatchedEvent(t *testing.T) {
 		t.Fatalf("status = %d, want 204", got)
 	}
 	d := h.decision()
-	if d["outcome"] != "unmatched" || d["route"] != "" || !reflect.DeepEqual(d["sinks"], []any{}) {
-		t.Errorf("decision line = %v, want outcome unmatched with empty route and sinks", d)
+	if d["level"] != "DEBUG" || d["outcome"] != "unmatched" || d["route"] != "" || !reflect.DeepEqual(d["sinks"], []any{}) {
+		t.Errorf("decision line = %v, want DEBUG outcome unmatched with empty route and sinks", d)
+	}
+}
+
+func TestDecisionLogLevels(t *testing.T) {
+	for _, level := range []slog.Level{slog.LevelInfo, slog.LevelDebug} {
+		t.Run(level.String(), func(t *testing.T) {
+			h := &harness{t: t, logs: &syncBuffer{}}
+			s := &Server{log: slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: level}))}
+			for _, outcome := range []string{"matched", "dropped", "unmatched"} {
+				s.logDecision(&Event{}, outcome, "", []string{})
+			}
+			lines := h.linesWith("routed")
+			want := []map[string]any{{"outcome": "matched", "level": "INFO"}}
+			if level == slog.LevelDebug {
+				want = append(want, map[string]any{"outcome": "dropped", "level": "DEBUG"}, map[string]any{"outcome": "unmatched", "level": "DEBUG"})
+			}
+			if len(lines) != len(want) {
+				t.Fatalf("decision lines = %v, want %v", lines, want)
+			}
+			for i, line := range lines {
+				if line["outcome"] != want[i]["outcome"] || line["level"] != want[i]["level"] {
+					t.Errorf("decision line = %v, want %v", line, want[i])
+				}
+			}
+		})
 	}
 }
 

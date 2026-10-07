@@ -82,7 +82,7 @@ A Forgejo assignment does not ping. The Forgejo payload does not name the assign
 
 ### Routes
 
-The Routes are one ordered list. Winnow tries each Route in file order. The first Route that matches the Event decides. If no Route matches, winnow drops the Event and writes a log line.
+The Routes are one ordered list. Winnow tries each Route in file order. The first Route that matches the Event decides. If no Route matches, winnow drops the Event and writes a DEBUG log line.
 
 ```yaml
 routes:
@@ -245,6 +245,8 @@ The Forgejo "Test delivery" button sends a normal push Event.
 
 ## Logs
 
-Winnow writes one log line for each Event. The line names the outcome (`sent`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. The line of a Backfill has `"backfill": true`. Winnow writes one Error line for each message that it cannot send to Discord. If winnow cannot write an Event to the store, it writes a `store write failed` line and sends the Event to its Routes as usual. To send a delivery again, find its delivery ID in the forge.
+Winnow logs `matched` at INFO when a Route selects Sinks for an Event. This line does not confirm delivery to Discord. Dropped and unmatched Events are logged at DEBUG. The default level is DEBUG. Start winnow with `--debug=false` to log only INFO and higher levels. With Docker Compose, add `command: ["--debug=false"]` to the service.
+
+Each Route decision line names the outcome (`matched`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. The line of a Backfill has `"backfill": true`. Winnow writes one ERROR line for each message that it cannot send to Discord. If winnow cannot write an Event to the store, it writes a `store write failed` line and sends the Event to its Routes as usual. To send a delivery again, find its delivery ID in the forge.
 
 The logs are JSON when the output is not a terminal. In a terminal, they are colored text.

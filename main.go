@@ -27,6 +27,7 @@ const drainTime = 10 * time.Second
 
 func main() {
 	configPath := flag.String("config", "/config/winnow.yaml", "path to the configuration file")
+	debug := flag.Bool("debug", true, "include debug logs")
 	flag.Parse()
 	// --config can come before or after the command.
 	cmd := flag.Arg(0)
@@ -40,9 +41,13 @@ func main() {
 	case "healthcheck":
 		os.Exit(healthcheck(*configPath))
 	}
-	var handler slog.Handler = slog.NewJSONHandler(os.Stdout, nil)
+	level := slog.LevelInfo
+	if *debug {
+		level = slog.LevelDebug
+	}
+	var handler slog.Handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
-		handler = tint.NewTextHandler(os.Stdout, nil)
+		handler = tint.NewTextHandler(os.Stdout, &tint.Options{Level: level})
 	}
 	log := slog.New(handler)
 	if err := serve(*configPath, log); err != nil {
