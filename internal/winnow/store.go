@@ -20,8 +20,9 @@ import (
 //go:embed migrations/*.sql
 var migrations embedfs.FS
 
-// store is the SQLite database of the Digests. It holds the matched Events,
-// the first-run time of each Digest, and the send state of each Period.
+// store is the SQLite database of winnow. It holds the matched Events,
+// the first-run time of each Digest, the send state of each Period, and
+// the deliveries that a Sweep or a live delivery handled.
 type store struct {
 	db *sql.DB
 }
@@ -197,5 +198,30 @@ func (s *store) state(key, period string) (string, error) {
 // setState sets the send state of the Period of the Digest key.
 func (s *store) setState(key, period, state string) error {
 	_, err := s.db.Exec("INSERT OR REPLACE INTO periods (digest, period, state) VALUES (?, ?, ?)", key, period, state)
+	return err
+}
+
+// swept reports whether a Sweep handled the delivery guid.
+func (s *store) swept(guid string) (bool, error) {
+	var ok bool
+	err := s.db.QueryRow("SELECT EXISTS (SELECT 1 FROM swept WHERE guid = ?)", guid).Scan(&ok)
+	return ok, err
+}
+
+// claim marks the delivery guid as handled at the time at. It returns false
+// when a Sweep handled guid earlier, in this process or in another process.
+func (s *store) claim(guid string, at time.Time) (bool, error) {
+	res, err := s.db.Exec("INSERT OR IGNORE INTO swept (guid, swept_at) VALUES (?, ?)", guid, at.Unix())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// forgetSwept deletes each handled delivery that a Sweep claimed earlier
+// than before.
+func (s *store) forgetSwept(before time.Time) error {
+	_, err := s.db.Exec("DELETE FROM swept WHERE swept_at < ?", before.Unix())
 	return err
 }

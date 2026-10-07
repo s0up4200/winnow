@@ -11,7 +11,7 @@ The image is `ghcr.io/s0up4200/winnow`. It is private and for linux/amd64 only. 
 1. Run `docker login ghcr.io` with a token that can read packages.
 2. Make a `config` directory. Copy [winnow.example.yaml](winnow.example.yaml) to `config/winnow.yaml` and change it for your forges and channels.
 3. Put the secrets and the Discord webhook URLs in a `winnow.env` file next to the Compose file, one `NAME=value` on each line.
-4. If you use Digests, make the `config` directory writable for the user `65532` of the container: `sudo chown 65532 config`. Winnow keeps the store of the Digests in this directory.
+4. If you use Digests or a Sweep, make the `config` directory writable for the user `65532` of the container: `sudo chown 65532 config`. Winnow keeps its store in this directory.
 5. Start winnow with Docker Compose:
 
 ```yaml
@@ -50,11 +50,13 @@ sources:
 
 Each Source must have a secret. Winnow rejects a delivery with a missing or wrong signature (HTTP 401). You cannot turn this check off. Winnow finds the forge from the request headers, so a Source has no `forge:` key.
 
+A GitHub Source can also have a `sweep` block. See [Sweeps](#sweeps).
+
 Winnow listens on `:8080`. To use a different address, set `listen:`, for example `listen: ":9000"`.
 
 ### Secrets from the environment
 
-Winnow reads a value from an environment variable when the value is one `${VAR}` placeholder and nothing else. This works only for a Source `secret` and a Sink `discord` URL. If the variable is unset or empty, winnow does not start.
+Winnow reads a value from an environment variable when the value is one `${VAR}` placeholder and nothing else. This works only for a Source `secret`, a Sweep `token`, and a Sink `discord` URL. If the variable is unset or empty, winnow does not start.
 
 A literal value also works, for example `secret: test-secret`. Use this only for a local test.
 
@@ -96,7 +98,7 @@ routes:
     match: { repo: autobrr/qui }
 ```
 
-Each Route must have `match:` and exactly one of `to:` (a list of Sinks) and `drop: true`. The optional `name:` is the name of the Route in the log lines. A Route with no name gets its position, for example `#3`.
+Each Route must have `match:` and exactly one of `to:` (a list of Sinks) and `drop: true`. The optional `name:` is the name of the Route in the log lines. A Route with no name gets its position, for example `#3`. The optional `backfill: true` makes the Route send a Backfill to its Sinks. See [Sweeps](#sweeps).
 
 A matcher has these fields:
 
@@ -160,13 +162,56 @@ The counts include only the Events that winnow received. The first Period of a n
 
 If winnow is down at the send time, it sends the message of the last Period when it starts. It skips each older Period and writes a `digest skipped` line. If Discord does not take the message, winnow tries again each hour. After 24 hours, it writes a `digest failed` line. Winnow keeps the tries in memory. If winnow restarts in these 24 hours, the start handles the Period as after downtime.
 
+### Sweeps
+
+GitHub does not send a failed delivery again. If winnow is down, or the tunnel to winnow is down, winnow never sees the deliveries of that time. A Sweep finds these missed deliveries with the GitHub API and fetches them. Each missed delivery becomes a Backfill.
+
+A Sweep works only for a GitHub org webhook. Add a `sweep` block to the Source:
+
+```yaml
+sources:
+  github-autobrr:
+    secret: "${WINNOW_SECRET_GITHUB_AUTOBRR}"
+    sweep:
+      token: "${WINNOW_GITHUB_TOKEN}"
+      org: autobrr
+      hook: 123456789
+alerts: soup
+```
+
+- `token`: a GitHub token. Use a `${VAR}` placeholder, so that the token stays in a secret.
+- `org`: the organization of the webhook.
+- `hook`: the ID of the org webhook. The ID is the number at the end of the URL of the webhook settings page.
+
+Winnow does not start when `token`, `org`, or `hook` is missing.
+
+To make the token, do these steps:
+
+1. Sign in to GitHub as an owner of the organization. Only an org owner can read the deliveries of an org webhook.
+2. Make a fine-grained personal access token. Set the resource owner to the organization.
+3. Give the token the organization permission "Webhooks" with read access. The token needs no other permission.
+
+A token that an org owner makes needs no approval. By default, an organization lets a fine-grained token live for 366 days or less. When the token expires, each Sweep fails with status 401. Make a new token before that date.
+
+Winnow does a Sweep when it starts, every 15 minutes, and before it sends a Digest message. A Sweep reads the deliveries of the last 3 days, because GitHub keeps deliveries for 3 days. A delivery is missed when no attempt got a 2xx status and no attempt got a 4xx status. Winnow skips a delivery with a 4xx status, for example a bad signature, because the same failure occurs again. Winnow also skips a delivery that it received but that GitHub marked as failed. This occurs when the tunnel drops the reply of winnow.
+
+A Backfill counts in the Digests, in the Period in which GitHub first tried to send it. The Digests always count Backfills. You do not set a flag on a Digest. A delivery can need a few minutes to show in the GitHub log. Thus, if a Source has a Sweep, set the `at` of each Digest to 15 minutes after midnight or later. A Backfill that winnow finds after the Digest send does not change that Digest message.
+
+Winnow does not send a Backfill to Discord, because an old Event then looks new. A Backfill uses the first Route that matches it, the same as a live Event. If that Route has `backfill: true`, winnow sends the Backfill to the Sinks of the Route, with the same message as a live Event. Otherwise winnow drops the Backfill. It does not try the Routes after it. Use `backfill: true` for an Event that must reach Discord also when it is late, for example a published release.
+
+Winnow sends each Backfill one time at most, also after a restart, and also when two winnow pods share the store during a rollout. If winnow stops after it marks a delivery as handled but before it sends the message, that Backfill is lost.
+
+`alerts` names the Sink that gets the Sweep alerts. Winnow sends an alert when the Sweep of a Source starts to fail, and when it works again. After a Sweep that found missed deliveries, winnow sends one line, for example "Swept 4 missed deliveries for github-autobrr". Without `alerts`, winnow only writes log lines. Winnow does not start when `alerts` names no Sink.
+
+A failed Sweep writes a `sweep failed` Warn line, and winnow tries again one minute later. A 401 or 404 status writes an Error line, because the token expired or the hook ID is wrong. If the Sweep before a Digest send fails, winnow sends the Digest and writes a `digest can count too few Events` line.
+
 ### The store
 
-Winnow keeps the Events that a Digest matches in a SQLite file. Winnow opens the file only when the configuration has Digests. The default path is `winnow.db` in the directory of the configuration file, thus `/config/winnow.db` in the container. To use a different path, set `database:`. A relative path is relative to the directory of the configuration file. If the file does not exist, winnow makes it. If winnow cannot open the file, or the file is damaged, winnow does not start.
+Winnow keeps the Events that a Digest matches in a SQLite file. It also keeps the deliveries that a Sweep handled. Winnow opens the file only when the configuration has Digests or a Sweep. The default path is `winnow.db` in the directory of the configuration file, thus `/config/winnow.db` in the container. To use a different path, set `database:`. A relative path is relative to the directory of the configuration file. If the file does not exist, winnow makes it. If winnow cannot open the file, or the file is damaged, winnow does not start.
 
 The user `65532` must be able to write to the directory of the file, because SQLite also writes the files `winnow.db-wal` and `winnow.db-shm` next to it. If `/config` is read-only, for example a Kubernetes ConfigMap, set `database:` to a path on a writable volume.
 
-Winnow keeps the stored Events and does not delete them. Two years of 200 Events each day use approximately 90 MB.
+Winnow keeps the stored Events and does not delete them. It deletes a handled delivery of a Sweep after 4 days. Two years of 200 Events each day use approximately 90 MB.
 
 To make a backup, stop winnow and copy the file. Alternatively, take a snapshot of the volume that includes the `winnow.db-wal` file.
 
@@ -200,6 +245,6 @@ The Forgejo "Test delivery" button sends a normal push Event.
 
 ## Logs
 
-Winnow writes one log line for each Event. The line names the outcome (`sent`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. Winnow writes one Error line for each message that it cannot send to Discord. If winnow cannot write an Event to the store, it writes a `store write failed` line and sends the Event to its Routes as usual. To send a delivery again, find its delivery ID in the forge.
+Winnow writes one log line for each Event. The line names the outcome (`sent`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. The line of a Backfill has `"backfill": true`. Winnow writes one Error line for each message that it cannot send to Discord. If winnow cannot write an Event to the store, it writes a `store write failed` line and sends the Event to its Routes as usual. To send a delivery again, find its delivery ID in the forge.
 
 The logs are JSON when the output is not a terminal. In a terminal, they are colored text.

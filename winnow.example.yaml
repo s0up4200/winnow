@@ -1,5 +1,9 @@
 sources:
-  github-autobrr:  { secret: "${WINNOW_SECRET_GITHUB_AUTOBRR}" }
+  # The Sweep of github-autobrr fetches the deliveries that winnow missed.
+  # hook is the ID of the org webhook.
+  github-autobrr:
+    secret: "${WINNOW_SECRET_GITHUB_AUTOBRR}"
+    sweep: { token: "${WINNOW_GITHUB_TOKEN}", org: autobrr, hook: 123456789 }
   github-s0up4200: { secret: "${WINNOW_SECRET_GITHUB_S0UP4200}" }
   forgejo:         { secret: "${WINNOW_SECRET_FORGEJO}" }
 
@@ -93,10 +97,14 @@ routes:
           - review_request_removed
       # One release sends several Events. Only published goes to Discord.
       - { event: release, not: { action: published } }
+  # A missed release that the Sweep finds still goes to Discord. Each other
+  # Backfill goes only to the Digests.
   - name: qui-releases
+    backfill: true
     to: [releases, qui]
     match: { event: release, action: published, repo: autobrr/qui }
   - name: releases
+    backfill: true
     to: [releases]
     match: { event: release, action: published }
   - name: qui
@@ -108,6 +116,9 @@ routes:
   - name: soup
     to: [soup]
     match: { source: [github-s0up4200, forgejo] }
+
+# The Sweep alerts go to the soup channel.
+alerts: soup
 
 # One weekly message for autobrr. It also counts the forks that the
 # stars-forks Route drops. Winnow keeps the store of the Digests in winnow.db

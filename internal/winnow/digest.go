@@ -305,7 +305,7 @@ type try struct {
 }
 
 // Run runs the scheduler step now and then each minute, until ctx ends.
-// Without Digests, it returns at once.
+// Without the store, it returns at once.
 func (s *Server) Run(ctx context.Context) {
 	if s.store == nil {
 		return
@@ -313,7 +313,7 @@ func (s *Server) Run(ctx context.Context) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
 	for {
-		s.step()
+		s.step(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -322,11 +322,14 @@ func (s *Server) Run(ctx context.Context) {
 	}
 }
 
-// step sends each Digest message that is due at this time.
-func (s *Server) step() {
+// step runs each Sweep that is due, and sends each Digest message that is
+// due at this time. One goroutine runs the steps, so two Sweeps never
+// overlap.
+func (s *Server) step(ctx context.Context) {
 	now := s.now()
+	_ = s.sweepDue(ctx, now, false) // sweep logs each failure
 	for i := range s.cfg.Digests {
-		if err := s.stepDigest(&s.cfg.Digests[i], now); err != nil {
+		if err := s.stepDigest(ctx, &s.cfg.Digests[i], now); err != nil {
 			s.log.Error("digest step failed", "digest", s.cfg.Digests[i].Name, "error", err)
 		}
 	}
@@ -336,7 +339,7 @@ func (s *Server) step() {
 // did not take, and sets the state failed after giveUp. It sends the last
 // Period when that Period has no state. Each older Period with no state,
 // back to the first-run time, gets the state skipped and a log line.
-func (s *Server) stepDigest(d *Digest, now time.Time) error {
+func (s *Server) stepDigest(ctx context.Context, d *Digest, now time.Time) error {
 	first, err := s.store.firstRun(d.key(), now)
 	if err != nil {
 		return err
@@ -362,7 +365,7 @@ func (s *Server) stepDigest(d *Digest, now time.Time) error {
 		s.log.Error("digest failed", "digest", d.Name, "period", key)
 	}
 	for _, p := range retry {
-		if err := s.sendDigest(d, p, first, now); err != nil {
+		if err := s.sendDigest(ctx, d, p, first, now); err != nil {
 			return err
 		}
 	}
@@ -380,7 +383,7 @@ func (s *Server) stepDigest(d *Digest, now time.Time) error {
 			return err
 		}
 		if p.key() == last.key() {
-			if err := s.sendDigest(d, p, first, now); err != nil {
+			if err := s.sendDigest(ctx, d, p, first, now); err != nil {
 				return err
 			}
 			continue
@@ -395,8 +398,12 @@ func (s *Server) stepDigest(d *Digest, now time.Time) error {
 
 // sendDigest counts the stored Events of p and puts the Digest message on
 // the queue of the Sink of d. A Period with no Events gets the state empty
-// and no message.
-func (s *Server) sendDigest(d *Digest, p period, first, now time.Time) error {
+// and no message. Before the first send of a step, it runs each Sweep, so
+// that the counts include the Backfills.
+func (s *Server) sendDigest(ctx context.Context, d *Digest, p period, first, now time.Time) error {
+	if err := s.sweepDue(ctx, now, true); err != nil {
+		s.log.Warn("digest can count too few Events", "digest", d.Name, "period", p.key(), "error", err)
+	}
 	// A partial Period counts from the first-run time, as its footer says.
 	// After a change to Every, the store has older Events of the Digest name.
 	var from time.Time

@@ -41,6 +41,7 @@ type harness struct {
 	discord chan discordRequest
 	replies chan reply
 	fake    *httptest.Server
+	gh      *fakeGitHub
 	dir     string    // the directory of the store
 	clock   time.Time // the time of the server clock
 	config  string    // the configuration of the running server
@@ -72,7 +73,8 @@ func (h *harness) script(rs ...reply) {
 
 // newHarness loads config and builds the handler. It replaces the discord URL
 // of each Sink with the URL of a fake Discord, and sets testRetryBase as the
-// retry base of each Sink. The fake Discord records each request on
+// retry base of each Sink. Each Sweep goes to h.gh, and a Sweep request to
+// another host fails the test. The fake Discord records each request on
 // h.discord and replies 204, or the next reply from h.script. The logs go to
 // a buffer as JSON. The store is in a temporary directory, and the server
 // clock reads h.clock.
@@ -105,6 +107,7 @@ func newHarness(t *testing.T, config string) *harness {
 		_, _ = io.WriteString(w, rep.body)
 	}))
 	t.Cleanup(h.fake.Close)
+	h.gh = newFakeGitHub(t)
 	h.start(config)
 	t.Cleanup(h.stop)
 	return h
@@ -120,6 +123,11 @@ func (h *harness) start(config string) {
 	for name, s := range cfg.Sinks {
 		s.Discord, s.retryBase = h.fake.URL+"/"+name, testRetryBase
 		cfg.Sinks[name] = s
+	}
+	for _, src := range cfg.Sources {
+		if src.Sweep != nil {
+			src.Sweep.api, src.Sweep.transport = h.gh.URL, onlyHost{h.t, h.gh.Listener.Addr().String()}
+		}
 	}
 	cfg.Database = filepath.Join(h.dir, "winnow.db")
 	srv, err := New(cfg, slog.New(slog.NewJSONHandler(h.logs, nil)))
@@ -149,7 +157,7 @@ func (h *harness) restart(config string) {
 // step sets the server clock to now and runs one scheduler step.
 func (h *harness) step(now time.Time) {
 	h.clock = now
-	h.srv.step()
+	h.srv.step(h.t.Context())
 }
 
 // do sends req to the handler and returns the reply.

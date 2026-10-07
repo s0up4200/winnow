@@ -5,8 +5,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"mime"
 	"net/http"
+	"slices"
 	"time"
 )
 
@@ -21,16 +23,25 @@ type Server struct {
 	cfg    *Config
 	log    *slog.Logger
 	outbox *outbox
-	store  *store           // nil when cfg has no Digests
+	store  *store           // nil when cfg has no Digests and no Sweep
 	now    func() time.Time // the clock; tests set a fixed time
 	tries  tries
+	// sweepers holds the Sweep of each Source with a sweep block, in the
+	// order of the Source names.
+	sweepers []*sweeper
 }
 
 // New returns the HTTP handler for cfg and starts one worker for each Sink.
-// When cfg has Digests, New opens the store.
+// When cfg has Digests or a Sweep, New opens the store.
 func New(cfg *Config, log *slog.Logger) (*Server, error) {
 	s := &Server{ServeMux: http.NewServeMux(), cfg: cfg, log: log, now: time.Now, tries: tries{m: map[tryKey]*try{}}}
-	if len(cfg.Digests) > 0 {
+	for _, name := range slices.Sorted(maps.Keys(cfg.Sources)) {
+		if w := cfg.Sources[name].Sweep; w != nil {
+			client := &http.Client{Timeout: githubTimeout, Transport: w.transport}
+			s.sweepers = append(s.sweepers, &sweeper{source: name, cfg: w, client: client})
+		}
+	}
+	if cfg.needsStore() {
 		st, err := openStore(cfg.Database, log)
 		if err != nil {
 			return nil, err
@@ -108,15 +119,13 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The Route decision does not change whether winnow stores the Event
-	// (ADR 0007). Live delivery never depends on the store.
-	var digests []string
-	for _, d := range s.cfg.Digests {
-		if d.Match.match(e) {
-			digests = append(digests, d.Name)
-		}
-	}
-	if s.store != nil && len(digests) > 0 {
-		if err := s.store.addEvent(e, s.now(), digests); err != nil {
+	// (ADR 0007).
+	s.storeEvent(e, s.now())
+	// Winnow claims a live delivery, so that a Sweep skips it. GitHub can
+	// mark a delivery as failed when the tunnel drops the reply. The
+	// delivery ID is the GUID of the delivery.
+	if s.store != nil && len(s.sweepers) > 0 && e.Delivery != "" {
+		if _, err := s.store.claim(e.Delivery, s.now()); err != nil {
 			s.log.Error("store write failed", append(e.logAttrs(), "error", err)...)
 		}
 	}
@@ -137,8 +146,25 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// logDecision writes the decision line: what the Routes did with e.
-func (s *Server) logDecision(e *Event, outcome, route string, sinks []string) {
+// storeEvent stores e, with at as the receive time, for each Digest that matches
+// it. Live delivery never depends on the store, so a failed write only logs.
+func (s *Server) storeEvent(e *Event, at time.Time) {
+	var digests []string
+	for _, d := range s.cfg.Digests {
+		if d.Match.match(e) {
+			digests = append(digests, d.Name)
+		}
+	}
+	if s.store != nil && len(digests) > 0 {
+		if err := s.store.addEvent(e, at, digests); err != nil {
+			s.log.Error("store write failed", append(e.logAttrs(), "error", err)...)
+		}
+	}
+}
+
+// logDecision writes the decision line: what the Routes did with e. extra
+// holds more fields for the line.
+func (s *Server) logDecision(e *Event, outcome, route string, sinks []string, extra ...any) {
 	attrs := []any{"outcome", outcome, "route", route, "sinks", sinks, "sender", e.Sender}
-	s.log.Info("routed", append(attrs, e.logAttrs()...)...)
+	s.log.Info("routed", slices.Concat(attrs, e.logAttrs(), extra)...)
 }

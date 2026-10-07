@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
+	"net/http"
 	"os"
 	"reflect"
 	"slices"
@@ -23,15 +24,29 @@ type Config struct {
 	Routes  []Route               `yaml:"routes"`
 	Bots    []string              `yaml:"bots"` // logins of Bot senders, compared without case
 	Digests []Digest              `yaml:"digests"`
+	Alerts  string                `yaml:"alerts"` // the name of the Sink that gets the Sweep alerts, or empty
 	// Database is the path of the store. A relative path is relative to the
 	// directory of the configuration file. Winnow opens it only when Digests
-	// is not empty.
+	// is not empty or a Source has a Sweep.
 	Database string `yaml:"database"`
 }
 
 // Source is one webhook endpoint, /hook/<name>, with its own secret.
 type Source struct {
 	Secret string `yaml:"secret"`
+	Sweep  *Sweep `yaml:"sweep"` // nil when the Source gets no Sweep
+}
+
+// Sweep is the configuration of the Sweep of one GitHub org webhook.
+type Sweep struct {
+	Token string `yaml:"token"` // a GitHub token that can read the deliveries of the hook
+	Org   string `yaml:"org"`
+	Hook  int64  `yaml:"hook"` // the numeric ID of the org webhook
+	// api is the base URL of the GitHub API, and transport is the HTTP
+	// transport of the GitHub client; nil means the default. They are not
+	// in the file. Tests set a fake.
+	api       string
+	transport http.RoundTripper
 }
 
 // SinkConfig is the configuration of one Sink.
@@ -49,6 +64,9 @@ type Route struct {
 	Match Matchers `yaml:"match"`
 	To    []string `yaml:"to"`
 	Drop  bool     `yaml:"drop"`
+	// Backfill makes the Route send a Backfill to its Sinks. A Route
+	// without it drops a Backfill.
+	Backfill bool `yaml:"backfill"`
 }
 
 // Digest is one entry in the digest list.
@@ -83,6 +101,14 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sources)) {
 		s := cfg.Sources[name]
 		required("sources."+name+".secret", &s.Secret)
+		if w := s.Sweep; w != nil {
+			required("sources."+name+".sweep.token", &w.Token)
+			required("sources."+name+".sweep.org", &w.Org)
+			if w.Hook <= 0 {
+				errs = append(errs, fmt.Errorf("sources.%s.sweep.hook is missing", name))
+			}
+			w.api = "https://api.github.com"
+		}
 		cfg.Sources[name] = s
 	}
 	// A forge login is not case-sensitive.
@@ -113,6 +139,9 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		}
 		if (len(r.To) > 0) == r.Drop {
 			errs = append(errs, fmt.Errorf("route %s: set exactly one of to: and drop:", r.Name))
+		}
+		if r.Drop && r.Backfill {
+			errs = append(errs, fmt.Errorf("route %s: backfill: true on a drop: route", r.Name))
 		}
 		for j := range r.Match {
 			if err := r.Match[j].compile(false); err != nil {
@@ -162,9 +191,15 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		}
 		warns = append(warns, eventWarnings(where, d.Match)...)
 	}
+	if cfg.Alerts != "" {
+		used[cfg.Alerts] = true
+		if _, ok := cfg.Sinks[cfg.Alerts]; !ok {
+			errs = append(errs, fmt.Errorf("alerts: sink %q is not in sinks", cfg.Alerts))
+		}
+	}
 	// An empty path opens a temporary database, which loses the send
-	// states at a restart.
-	if len(cfg.Digests) > 0 {
+	// states and the swept deliveries at a restart.
+	if cfg.needsStore() {
 		required("database", &cfg.Database)
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sinks)) {
@@ -173,6 +208,16 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		}
 	}
 	return cfg, errs, warns
+}
+
+// needsStore reports whether c has Digests or a Source with a Sweep.
+func (c *Config) needsStore() bool {
+	for _, s := range c.Sources {
+		if s.Sweep != nil {
+			return true
+		}
+	}
+	return len(c.Digests) > 0
 }
 
 // eventWarnings returns a warning for each event pattern in ms, also inside

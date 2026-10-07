@@ -119,6 +119,17 @@ routes:
 		{"bad matcher in a digest", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: { not: { not: { repo: x } } } }\n",
 			"digest w: not: inside not:"},
 		{"empty database with digests", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: {} }\ndatabase: \"\"\n", "database is empty"},
+		{"sweep with no org", "sources:\n  s: { secret: x, sweep: { token: t, hook: 1 } }\n", "sources.s.sweep.org is empty"},
+		{"sweep with no hook", "sources:\n  s: { secret: x, sweep: { token: t, org: autobrr } }\n", "sources.s.sweep.hook is missing"},
+		{"sweep with no token", "sources:\n  s: { secret: x, sweep: { org: autobrr, hook: 1 } }\n", "sources.s.sweep.token is empty"},
+		{"empty database with a sweep", "sources:\n  s: { secret: x, sweep: { token: t, org: autobrr, hook: 1 } }\ndatabase: \"\"\n", "database is empty"},
+		{"alerts sink that is not in sinks", "alerts: b\n", `alerts: sink "b" is not in sinks`},
+		{"backfill on a drop route", `
+routes:
+  - match: {}
+    drop: true
+    backfill: true
+`, "route #1: backfill: true on a drop: route"},
 	}
 	t.Setenv("WINNOW_TEST_EMPTY", "")
 	for _, tt := range tests {
@@ -204,7 +215,7 @@ func TestSampleConfiguration(t *testing.T) {
 	for _, name := range []string{
 		"WINNOW_SECRET_GITHUB_AUTOBRR", "WINNOW_SECRET_GITHUB_S0UP4200", "WINNOW_SECRET_FORGEJO",
 		"WINNOW_DISCORD_SECURITY", "WINNOW_DISCORD_AUTOBRR", "WINNOW_DISCORD_QUI",
-		"WINNOW_DISCORD_SOUP", "WINNOW_DISCORD_RELEASES",
+		"WINNOW_DISCORD_SOUP", "WINNOW_DISCORD_RELEASES", "WINNOW_GITHUB_TOKEN",
 	} {
 		t.Setenv(name, "https://discord.example.invalid/api/webhooks/1/"+name)
 	}

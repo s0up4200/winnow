@@ -59,3 +59,11 @@ _Avoid_: window, interval
 **Star**:
 One `star.created` Event. GitHub also sends `watch.started` for the same star, so winnow counts only `star.created`. An unstar (`star.deleted`) does not subtract.
 _Avoid_: watch
+
+**Backfill**:
+An Event that winnow did not receive from the forge, and that the Sweep fetches from the forge API later. Winnow stores a Backfill for the Digests, and sends it only to a Route that accepts Backfills.
+_Avoid_: redelivery, replay, catch-up
+
+**Sweep**:
+One pass over the recent deliveries of one Source. It stores each missed delivery as a Backfill.
+_Avoid_: poll, sync, reconcile
