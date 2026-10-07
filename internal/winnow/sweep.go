@@ -150,15 +150,18 @@ func (s *Server) sweepDue(ctx context.Context, now time.Time, all bool) error {
 func (s *Server) sweep(ctx context.Context, w *sweeper, now time.Time) error {
 	n, err := s.sweepOnce(ctx, w, now)
 	if err != nil {
-		// A 401 or a 404 is an expired token or a wrong hook ID, not a
-		// short GitHub outage.
+		// A 401 or a 404 can mean a token, webhook, or access problem.
 		log := s.log.Warn
 		if se, ok := errors.AsType[*statusError](err); ok && (se.status == http.StatusUnauthorized || se.status == http.StatusNotFound) {
 			log = s.log.Error
 		}
 		log("sweep failed", "source", w.source, "error", err)
 		if w.err == nil {
-			s.alert("Sweep of "+w.source+" failed", err.Error())
+			desc := err.Error()
+			if se, ok := errors.AsType[*statusError](err); ok && se.status == http.StatusNotFound {
+				desc = "GitHub API status 404. Check the organization and webhook ID, that the token belongs to an org owner with Webhooks read access, and whether an OAuth app created the webhook. See the README Sweeps section."
+			}
+			s.alert("Sweep of "+w.source+" failed", desc)
 		}
 	} else {
 		w.last = now

@@ -414,21 +414,52 @@ func TestSweepForgetsAfterFourDays(t *testing.T) {
 
 func TestSweepAlertsOnFailureAndRecovery(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusNotFound} {
-		t.Run(strconv.Itoa(status), func(t *testing.T) {
-			h := newHarness(t, sweepConfig)
-			h.gh.status = status
-			h.step(day(10, 1, 12, 0))
-			h.step(day(10, 1, 12, 1))
-			if got := h.linesWith("sweep failed"); len(got) != 2 || got[0]["level"] != "ERROR" || got[1]["level"] != "ERROR" {
-				t.Errorf("sweep failed lines = %v, want two error lines", got)
-			}
-			h.gh.status = 0
-			h.step(day(10, 1, 12, 2))
-			h.step(day(10, 1, 12, 20))
-			if titles := alertTitles(t, h.drain()); !slices.Equal(titles, []string{"Sweep of github-autobrr failed", "Sweep of github-autobrr works again"}) {
-				t.Errorf("alerts = %q", titles)
-			}
-		})
+		for _, endpoint := range []string{"list", "detail"} {
+			t.Run(strconv.Itoa(status)+"/"+endpoint, func(t *testing.T) {
+				h := newHarness(t, sweepConfig)
+				if endpoint == "detail" {
+					h.missed("star", "star_created", day(10, 1, 11, 0), 502)
+					h.gh.fail[1] = status
+				} else {
+					h.gh.status = status
+				}
+				h.step(day(10, 1, 12, 0))
+				h.step(day(10, 1, 12, 1))
+				if got := h.linesWith("sweep failed"); len(got) != 2 || got[0]["level"] != "ERROR" || got[1]["level"] != "ERROR" {
+					t.Errorf("sweep failed lines = %v, want two error lines", got)
+				}
+				// A new status during the same failure must not send another alert.
+				h.gh.status = http.StatusServiceUnavailable
+				h.step(day(10, 1, 12, 2))
+				h.gh.status = 0
+				clear(h.gh.fail)
+				h.step(day(10, 1, 12, 3))
+				h.step(day(10, 1, 12, 20))
+				got := h.drain()
+				titles := alertTitles(t, got)
+				// The detail case also sends an alert for the recovered Backfill.
+				titles = slices.DeleteFunc(titles, func(title string) bool { return strings.HasPrefix(title, "Swept ") })
+				if !slices.Equal(titles, []string{"Sweep of github-autobrr failed", "Sweep of github-autobrr works again"}) {
+					t.Errorf("alerts = %q", titles)
+				}
+				want := "GitHub API status 401"
+				if status == http.StatusNotFound {
+					want = "GitHub API status 404. Check the organization and webhook ID, that the token belongs to an org owner with Webhooks read access, and whether an OAuth app created the webhook. See the README Sweeps section."
+				}
+				for _, r := range got {
+					if r.Sink != "alerts" {
+						continue
+					}
+					var m message
+					if err := json.Unmarshal(r.Body, &m); err != nil {
+						t.Fatal(err)
+					}
+					if e := m.Embeds[0]; e.Title == "Sweep of github-autobrr failed" && e.Description != want {
+						t.Errorf("failure description = %q, want %q", e.Description, want)
+					}
+				}
+			})
+		}
 	}
 }
 

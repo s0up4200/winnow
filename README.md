@@ -185,6 +185,20 @@ alerts: soup
 
 Winnow does not start when `token`, `org`, or `hook` is missing.
 
+Create the organization webhook in the GitHub web UI, under the organization's Settings, then Webhooks. Follow [Set up the webhooks](#set-up-the-webhooks) for the URL, content type, secret, and selected events.
+
+An OAuth app can create an organization webhook that a personal access token (PAT) cannot access, even with the required permission. For example, GitHub CLI with its OAuth login can create such a webhook. The CLI can also use a PAT, so CLI use alone does not mean that an OAuth app created the webhook. See [GitHub's organization webhook API documentation](https://docs.github.com/en/rest/orgs/webhooks?apiVersion=2022-11-28#list-deliveries-for-an-organization-webhook) and [GitHub CLI token overrides](https://cli.github.com/manual/gh_help_environment).
+
+To replace an organization webhook that an OAuth app created, do these steps:
+
+1. Save the webhook's payload URL and selected events. Get the secret from the Source's configured value or environment variable.
+2. Delete the old webhook. GitHub can reject a second webhook with the same URL, as it did in the reported incident.
+3. Create the replacement in the GitHub web UI, under the organization's Settings, then Webhooks. Follow [Set up the webhooks](#set-up-the-webhooks), with the saved URL, secret, and selected events, and content type `application/json`.
+4. Set the Source's `sweep.hook` to the new webhook ID, the number at the end of the replacement webhook's settings URL.
+5. Restart winnow. With Docker Compose, run `docker compose restart winnow`.
+
+Deliveries can be missed between deletion and recreation of the webhook.
+
 To make the token, do these steps:
 
 1. Sign in to GitHub as an owner of the organization. Only an org owner can read the deliveries of an org webhook.
@@ -203,7 +217,7 @@ Winnow sends each Backfill one time at most, also after a restart, and also when
 
 `alerts` names the Sink that gets the Sweep alerts. Winnow sends an alert when the Sweep of a Source starts to fail, and when it works again. After a Sweep that found missed deliveries, winnow sends one line, for example "Swept 4 missed deliveries for github-autobrr". Without `alerts`, winnow only writes log lines. Winnow does not start when `alerts` names no Sink.
 
-A failed Sweep writes a `sweep failed` Warn line, and winnow tries again one minute later. A 401 or 404 status writes an Error line, because the token expired or the hook ID is wrong. If the Sweep before a Digest send fails, winnow sends the Digest and writes a `digest can count too few Events` line.
+A failed Sweep writes a `sweep failed` Warn line, and winnow tries again one minute later. A 401 or 404 status writes an Error line. A 401 can mean that the token expired. For a 404, make sure that the organization and webhook ID are correct, the token belongs to an org owner, and it has Webhooks read access. Also find out whether an OAuth app created the webhook. These are possible causes, not a diagnosis. The 404 alert lists these checks and points to this section. Winnow suppresses repeated failure alerts, even when the status changes, and sends an alert when the Sweep works again. If the Sweep before a Digest send fails, winnow sends the Digest and writes a `digest can count too few Events` line.
 
 ### The store
 
