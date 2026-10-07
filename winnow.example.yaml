@@ -108,3 +108,13 @@ routes:
   - name: soup
     to: [soup]
     match: { source: [github-s0up4200, forgejo] }
+
+# One weekly message for autobrr. It also counts the forks that the
+# stars-forks Route drops. Winnow keeps the store of the Digests in winnow.db
+# next to this file, so this directory must be writable.
+digests:
+  - name: autobrr-weekly
+    every: weekly
+    at: "09:00"
+    to: autobrr
+    match: { owner: autobrr, not: { author_bot: true } }

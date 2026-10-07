@@ -20,6 +20,7 @@ type Matcher struct {
 	Owner       Patterns `yaml:"owner"`
 	Sender      Patterns `yaml:"sender"`
 	SenderBot   *bool    `yaml:"sender_bot"`
+	AuthorBot   *bool    `yaml:"author_bot"`
 	Ref         Patterns `yaml:"ref"`
 	Merged      *bool    `yaml:"merged"`
 	Draft       *bool    `yaml:"draft"`
@@ -37,6 +38,7 @@ func (m *Matcher) matches(e *Event) bool {
 		m.Owner.match(new(strings.ToLower(e.Owner))) &&
 		m.Sender.match(new(strings.ToLower(e.Sender))) &&
 		eq(m.SenderBot, &e.SenderBot) &&
+		eq(m.AuthorBot, e.AuthorBot) &&
 		m.Ref.match(e.Ref) &&
 		eq(m.Merged, e.Merged) &&
 		eq(m.Draft, e.Draft) &&

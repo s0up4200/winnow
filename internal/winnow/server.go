@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"time"
 )
 
 // maxBody is the largest delivery that winnow reads. GitHub sends at most
@@ -14,17 +15,29 @@ import (
 const maxBody = 25 << 20
 
 // Server is the HTTP handler of winnow. It gives each routed Event to Sink
-// delivery.
+// delivery, and it stores each Event that a Digest matches.
 type Server struct {
 	*http.ServeMux
 	cfg    *Config
 	log    *slog.Logger
 	outbox *outbox
+	store  *store           // nil when cfg has no Digests
+	now    func() time.Time // the clock; tests set a fixed time
+	tries  tries
 }
 
 // New returns the HTTP handler for cfg and starts one worker for each Sink.
-func New(cfg *Config, log *slog.Logger) *Server {
-	s := &Server{ServeMux: http.NewServeMux(), cfg: cfg, log: log, outbox: newOutbox(cfg, log)}
+// When cfg has Digests, New opens the store.
+func New(cfg *Config, log *slog.Logger) (*Server, error) {
+	s := &Server{ServeMux: http.NewServeMux(), cfg: cfg, log: log, now: time.Now, tries: tries{m: map[tryKey]*try{}}}
+	if len(cfg.Digests) > 0 {
+		st, err := openStore(cfg.Database, log)
+		if err != nil {
+			return nil, err
+		}
+		s.store = st
+	}
+	s.outbox = newOutbox(cfg, log)
 	// The pattern has no method, so that an unknown Source gets 404 before
 	// a wrong method gets 405.
 	s.HandleFunc("/hook/{source}", s.hook)
@@ -33,7 +46,7 @@ func New(cfg *Config, log *slog.Logger) *Server {
 	s.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ok")
 	})
-	return s
+	return s, nil
 }
 
 // Shutdown sends the messages left in the Sink queues and returns when the
@@ -42,7 +55,15 @@ func New(cfg *Config, log *slog.Logger) *Server {
 // the HTTP server stops. A handler that still runs after the drain starts
 // does not enqueue its message, but logs it with reason=shutdown. A second
 // call only waits for the workers.
-func (s *Server) Shutdown(ctx context.Context) { s.outbox.shutdown(ctx) }
+// Shutdown then closes the store. Stop Run before Shutdown.
+func (s *Server) Shutdown(ctx context.Context) {
+	s.outbox.shutdown(ctx)
+	if s.store != nil {
+		if err := s.store.close(); err != nil {
+			s.log.Warn("store did not close", "error", err)
+		}
+	}
+}
 
 // hook receives one delivery. The order of the checks is part of the
 // contract: a request to an unknown Source costs nothing, and winnow parses
@@ -85,6 +106,19 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 	if e.Name == "ping" {
 		w.WriteHeader(http.StatusOK)
 		return
+	}
+	// The Route decision does not change whether winnow stores the Event
+	// (ADR 0007). Live delivery never depends on the store.
+	var digests []string
+	for _, d := range s.cfg.Digests {
+		if d.Match.match(e) {
+			digests = append(digests, d.Name)
+		}
+	}
+	if s.store != nil && len(digests) > 0 {
+		if err := s.store.addEvent(e, s.now(), digests); err != nil {
+			s.log.Error("store write failed", append(e.logAttrs(), "error", err)...)
+		}
 	}
 
 	route := s.cfg.route(e)

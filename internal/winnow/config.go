@@ -2,6 +2,7 @@ package winnow
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
@@ -21,6 +22,11 @@ type Config struct {
 	Sinks   map[string]SinkConfig `yaml:"sinks"`
 	Routes  []Route               `yaml:"routes"`
 	Bots    []string              `yaml:"bots"` // logins of Bot senders, compared without case
+	Digests []Digest              `yaml:"digests"`
+	// Database is the path of the store. A relative path is relative to the
+	// directory of the configuration file. Winnow opens it only when Digests
+	// is not empty.
+	Database string `yaml:"database"`
 }
 
 // Source is one webhook endpoint, /hook/<name>, with its own secret.
@@ -45,10 +51,21 @@ type Route struct {
 	Drop  bool     `yaml:"drop"`
 }
 
+// Digest is one entry in the digest list.
+type Digest struct {
+	Name  string   `yaml:"name"`
+	Every string   `yaml:"every"` // the Period: daily, weekly, monthly, or yearly
+	At    string   `yaml:"at"`    // the send time, HH:MM in local time; Load sets 09:00 when the file has none
+	To    string   `yaml:"to"`    // the name of one Sink
+	Match Matchers `yaml:"match"`
+	// sendAt is At as the time after midnight. Load sets it.
+	sendAt time.Duration
+}
+
 // Load parses a configuration file. Startup and `winnow check` both call it.
 // An error stops startup. A warning does not.
 func Load(data []byte) (cfg *Config, errs []error, warns []string) {
-	cfg = &Config{Listen: ":8080"}
+	cfg = &Config{Listen: ":8080", Database: "winnow.db"}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil {
@@ -108,11 +125,51 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 				errs = append(errs, fmt.Errorf("route %s: sink %q is not in sinks", r.Name, to))
 			}
 		}
-		warns = append(warns, eventWarnings(r.Name, r.Match)...)
+		warns = append(warns, eventWarnings("route "+r.Name, r.Match)...)
+	}
+	digests := map[string]bool{}
+	for i := range cfg.Digests {
+		d := &cfg.Digests[i]
+		where := fmt.Sprintf("digest %s", d.Name)
+		switch {
+		case d.Name == "":
+			where = fmt.Sprintf("digest #%d", i+1)
+			errs = append(errs, fmt.Errorf("%s: name is missing", where))
+		case digests[d.Name]:
+			errs = append(errs, fmt.Errorf("%s: two digests have this name", where))
+		}
+		digests[d.Name] = true
+		if !slices.Contains([]string{"daily", "weekly", "monthly", "yearly"}, d.Every) {
+			errs = append(errs, fmt.Errorf("%s: every must be daily, weekly, monthly, or yearly, not %q", where, d.Every))
+		}
+		d.At = cmp.Or(d.At, "09:00")
+		if t, err := time.Parse("15:04", d.At); err != nil {
+			errs = append(errs, fmt.Errorf("%s: at must be HH:MM, not %q", where, d.At))
+		} else {
+			d.sendAt = time.Duration(t.Hour())*time.Hour + time.Duration(t.Minute())*time.Minute
+		}
+		used[d.To] = true
+		if _, ok := cfg.Sinks[d.To]; !ok {
+			errs = append(errs, fmt.Errorf("%s: sink %q is not in sinks", where, d.To))
+		}
+		if d.Match == nil {
+			errs = append(errs, fmt.Errorf("%s: match is missing", where))
+		}
+		for j := range d.Match {
+			if err := d.Match[j].compile(false); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", where, err))
+			}
+		}
+		warns = append(warns, eventWarnings(where, d.Match)...)
+	}
+	// An empty path opens a temporary database, which loses the send
+	// states at a restart.
+	if len(cfg.Digests) > 0 {
+		required("database", &cfg.Database)
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sinks)) {
 		if !used[name] {
-			warns = append(warns, fmt.Sprintf("sinks.%s: no route sends to this sink", name))
+			warns = append(warns, fmt.Sprintf("sinks.%s: no route or digest sends to this sink", name))
 		}
 	}
 	return cfg, errs, warns
@@ -120,14 +177,14 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 
 // eventWarnings returns a warning for each event pattern in ms, also inside
 // not:, that matches no known Event name. The patterns must be compiled.
-func eventWarnings(route string, ms Matchers) (warns []string) {
+func eventWarnings(where string, ms Matchers) (warns []string) {
 	for _, m := range ms {
 		for _, p := range m.Event {
 			if !slices.ContainsFunc(knownEvents, func(k string) bool { return Patterns{p}.match(&k) }) {
-				warns = append(warns, fmt.Sprintf("route %s: event %q is not a known Event name", route, p))
+				warns = append(warns, fmt.Sprintf("%s: event %q is not a known Event name", where, p))
 			}
 		}
-		warns = append(warns, eventWarnings(route, m.Not)...)
+		warns = append(warns, eventWarnings(where, m.Not)...)
 	}
 	return warns
 }

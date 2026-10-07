@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -55,7 +57,13 @@ func load(configPath string) (*winnow.Config, []error, []string) {
 	if err != nil {
 		return nil, []error{err}, nil
 	}
-	return winnow.Load(data)
+	cfg, errs, warns := winnow.Load(data)
+	// A relative database path is relative to the directory of the
+	// configuration file.
+	if cfg != nil && !filepath.IsAbs(cfg.Database) {
+		cfg.Database = filepath.Join(filepath.Dir(configPath), cfg.Database)
+	}
+	return cfg, errs, warns
 }
 
 // check loads the configuration with the same function as startup and prints
@@ -103,8 +111,9 @@ func healthcheck(configPath string) int {
 	return 0
 }
 
-// serve runs the HTTP server until SIGTERM or SIGINT. Then it stops the
-// server and drains the Sink queues for at most drainTime.
+// serve runs the HTTP server and the Digest scheduler until SIGTERM or
+// SIGINT. Then it stops both and drains the Sink queues for at most
+// drainTime.
 func serve(configPath string, log *slog.Logger) error {
 	cfg, errs, warns := load(configPath)
 	for _, w := range warns {
@@ -115,7 +124,12 @@ func serve(configPath string, log *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
-	handler := winnow.New(cfg, log)
+	handler, err := winnow.New(cfg, log)
+	if err != nil {
+		return err
+	}
+	var scheduler sync.WaitGroup
+	scheduler.Go(func() { handler.Run(ctx) })
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           handler,
@@ -131,6 +145,7 @@ func serve(configPath string, log *slog.Logger) error {
 	case <-ctx.Done():
 	}
 
+	scheduler.Wait()
 	log.Info("shutting down", "drain", drainTime.String())
 	ctx, cancel := context.WithTimeout(context.Background(), drainTime)
 	defer cancel()

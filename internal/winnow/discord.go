@@ -28,6 +28,11 @@ type embed struct {
 	URL         string      `json:"url,omitempty"`
 	Description string      `json:"description,omitempty"`
 	Color       int         `json:"color,omitzero"`
+	Footer      embedFooter `json:"footer,omitzero"`
+}
+
+type embedFooter struct {
+	Text string `json:"text"`
 }
 
 type embedAuthor struct {

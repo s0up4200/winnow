@@ -268,6 +268,10 @@ func TestRuleFields(t *testing.T) {
 		{"ref only on push", `{ref: "*"}`, "create",
 			bytes.Replace(label, []byte(`"action"`), []byte(`"ref": "main", "action"`), 1), http.StatusNoContent},
 		{"draft only on pull_request", "{draft: false}", "pull_request_review", fixture(t, "github/pull_request_review_submitted"), http.StatusNoContent},
+		{"bot author", "{author_bot: true}", "pull_request",
+			bytes.Replace(fixture(t, "github/pull_request_merged"), []byte(`"login": "s0up4200"`), []byte(`"login": "renovate[bot]"`), 1), http.StatusAccepted},
+		{"human author", "{author_bot: true}", "pull_request", fixture(t, "github/pull_request_merged"), http.StatusNoContent},
+		{"author_bot only with an author", "{author_bot: false}", "label", label, http.StatusNoContent},
 		{"is_pull only on issue_comment", "{is_pull: false}", "issues", fixture(t, "github/issues_opened"), http.StatusNoContent},
 	}
 	for _, tt := range tests {

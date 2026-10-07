@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -34,10 +35,16 @@ const testDelivery = "72d3162e-cc78-11e3-81ab-4c9367dc0958"
 // with each Sink URL pointed at one fake Discord.
 type harness struct {
 	t       *testing.T
+	srv     *Server
 	handler http.Handler
 	logs    *syncBuffer
 	discord chan discordRequest
 	replies chan reply
+	fake    *httptest.Server
+	dir     string    // the directory of the store
+	clock   time.Time // the time of the server clock
+	config  string    // the configuration of the running server
+	ids     int       // the number of delivery IDs that receive made
 }
 
 // discordRequest is one request that the fake Discord received.
@@ -65,16 +72,14 @@ func (h *harness) script(rs ...reply) {
 
 // newHarness loads config and builds the handler. It replaces the discord URL
 // of each Sink with the URL of a fake Discord, and sets testRetryBase as the
-// retry base of each Sink. The fake Discord records each
-// request on h.discord and replies 204, or the next reply from h.script. The logs go to a buffer as JSON.
+// retry base of each Sink. The fake Discord records each request on
+// h.discord and replies 204, or the next reply from h.script. The logs go to
+// a buffer as JSON. The store is in a temporary directory, and the server
+// clock reads h.clock.
 func newHarness(t *testing.T, config string) *harness {
 	t.Helper()
-	cfg, errs, _ := Load([]byte(config))
-	if len(errs) > 0 {
-		t.Fatalf("load configuration: %v", errs)
-	}
-	h := &harness{t: t, logs: &syncBuffer{}, discord: make(chan discordRequest, 100), replies: make(chan reply, 100)}
-	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := &harness{t: t, logs: &syncBuffer{}, discord: make(chan discordRequest, 100), replies: make(chan reply, 100), dir: t.TempDir()}
+	h.fake = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		// When h.discord is full, the fake Discord drops the record, so
 		// that a flood of requests fails the test and does not hang it.
@@ -99,20 +104,52 @@ func newHarness(t *testing.T, config string) *harness {
 		w.WriteHeader(rep.status)
 		_, _ = io.WriteString(w, rep.body)
 	}))
-	t.Cleanup(fake.Close)
+	t.Cleanup(h.fake.Close)
+	h.start(config)
+	t.Cleanup(h.stop)
+	return h
+}
+
+// start builds the server from config, on the store in h.dir.
+func (h *harness) start(config string) {
+	h.t.Helper()
+	cfg, errs, _ := Load([]byte(config))
+	if len(errs) > 0 {
+		h.t.Fatalf("load configuration: %v", errs)
+	}
 	for name, s := range cfg.Sinks {
-		s.Discord, s.retryBase = fake.URL+"/"+name, testRetryBase
+		s.Discord, s.retryBase = h.fake.URL+"/"+name, testRetryBase
 		cfg.Sinks[name] = s
 	}
-	srv := New(cfg, slog.New(slog.NewJSONHandler(h.logs, nil)))
-	// A short drain limit stops a worker in a long retry wait fast.
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-		srv.Shutdown(ctx)
-	})
-	h.handler = srv
-	return h
+	cfg.Database = filepath.Join(h.dir, "winnow.db")
+	srv, err := New(cfg, slog.New(slog.NewJSONHandler(h.logs, nil)))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	srv.now = func() time.Time { return h.clock }
+	h.srv, h.handler, h.config = srv, srv, config
+}
+
+// stop shuts the server down. A short drain limit stops a worker in a long
+// retry wait fast.
+func (h *harness) stop() {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	h.srv.Shutdown(ctx)
+}
+
+// restart stops the server and starts it again from config on the same
+// store.
+func (h *harness) restart(config string) {
+	h.t.Helper()
+	h.stop()
+	h.start(config)
+}
+
+// step sets the server clock to now and runs one scheduler step.
+func (h *harness) step(now time.Time) {
+	h.clock = now
+	h.srv.step()
 }
 
 // do sends req to the handler and returns the reply.

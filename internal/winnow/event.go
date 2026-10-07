@@ -27,18 +27,21 @@ type Event struct {
 	Draft       *bool   // pull_request
 	ReviewState *string // pull_request_review
 	IsPull      *bool   // issue_comment: true on a pull request
+	AuthorBot   *bool   // the Author is a Bot sender; only when the Event has an Author
 
 	// Rules cannot match the fields below. The log lines show Delivery. The
 	// Renderers read the others.
 	Delivery     string // X-GitHub-Delivery or X-Forgejo-Delivery
 	URL          string // link to the main object
-	RepoURL      string // link to the repository; the References in Body link to it
+	RepoURL      string // link to the repository; the References in Body and the Digest repository lines link to it
 	Title        string // title of the main object, for example the issue title
 	Number       int    // number of the issue, pull request, or discussion; 0 if none
 	Body         string // text of the most specific object, for example the comment
 	SenderURL    string
 	SenderAvatar string
 	Target       string // login of the requested reviewer or the assignee; only for review_requested and assigned
+	Author       string // login of the author of the pull request or the issue
+	Tag          string // tag name of a release
 	Push         Push   // push only
 	Alert        *Alert // security Events
 }
@@ -127,11 +130,13 @@ type ghPayload struct {
 	} `json:"repository"`
 	PullRequest struct {
 		ghTopic
-		Merged *bool `json:"merged"`
-		Draft  *bool `json:"draft"`
+		User   *ghUser `json:"user"`
+		Merged *bool   `json:"merged"`
+		Draft  *bool   `json:"draft"`
 	} `json:"pull_request"`
 	Issue *struct {
 		ghTopic
+		User        *ghUser   `json:"user"`
 		PullRequest *struct{} `json:"pull_request"`
 	} `json:"issue"`
 	Review struct {
@@ -227,16 +232,19 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 	if err := json.Unmarshal(body, &p); err != nil {
 		return nil, err
 	}
+	isBot := func(u ghUser) bool {
+		return u.Type == "Bot" || strings.HasSuffix(u.Login, "[bot]") ||
+			slices.ContainsFunc(bots, func(b string) bool { return strings.EqualFold(b, u.Login) })
+	}
 	e := &Event{
-		Source: source,
-		Forge:  forge,
-		Name:   name,
-		Action: p.Action,
-		Repo:   p.Repository.FullName,
-		Owner:  p.Repository.Owner.Login,
-		Sender: p.Sender.Login,
-		SenderBot: p.Sender.Type == "Bot" || strings.HasSuffix(p.Sender.Login, "[bot]") ||
-			slices.ContainsFunc(bots, func(b string) bool { return strings.EqualFold(b, p.Sender.Login) }),
+		Source:       source,
+		Forge:        forge,
+		Name:         name,
+		Action:       p.Action,
+		Repo:         p.Repository.FullName,
+		Owner:        p.Repository.Owner.Login,
+		Sender:       p.Sender.Login,
+		SenderBot:    isBot(p.Sender),
 		Ref:          p.Ref,
 		Merged:       p.PullRequest.Merged,
 		Draft:        p.PullRequest.Draft,
@@ -245,6 +253,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		RepoURL:      p.Repository.HTMLURL,
 		SenderURL:    p.Sender.HTMLURL,
 		SenderAvatar: p.Sender.AvatarURL,
+		Tag:          p.Release.TagName,
 	}
 	switch p.Action {
 	case "review_requested":
@@ -253,9 +262,13 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		e.Target = p.Assignee.Login
 	}
 	var issue ghTopic
+	author := p.PullRequest.User
 	if p.Issue != nil {
 		e.IsPull = new(p.Issue.PullRequest != nil)
-		issue = p.Issue.ghTopic
+		issue, author = p.Issue.ghTopic, p.Issue.User
+	}
+	if author != nil {
+		e.Author, e.AuthorBot = author.Login, new(isBot(*author))
 	}
 	var alertURL, report string
 	if a := p.Alert; a != nil {

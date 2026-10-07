@@ -108,6 +108,17 @@ routes:
     match: { repo: autobrr/qui }
     drop: true
 `, `route late: route all before it matches every Event`},
+		{"digest with no name", digestErrorConfig + "  - { every: weekly, to: a, match: {} }\n", "digest #1: name is missing"},
+		{"two digests with one name", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: {} }\n  - { name: w, every: daily, to: a, match: {} }\n",
+			"digest w: two digests have this name"},
+		{"unknown every", digestErrorConfig + "  - { name: w, every: hourly, to: a, match: {} }\n",
+			`digest w: every must be daily, weekly, monthly, or yearly, not "hourly"`},
+		{"bad at", digestErrorConfig + `  - { name: w, every: weekly, at: "25:00", to: a, match: {} }` + "\n", `digest w: at must be HH:MM, not "25:00"`},
+		{"digest sink that is not in sinks", digestErrorConfig + "  - { name: w, every: weekly, to: b, match: {} }\n", `digest w: sink "b" is not in sinks`},
+		{"digest with no match", digestErrorConfig + "  - { name: w, every: weekly, to: a }\n", "digest w: match is missing"},
+		{"bad matcher in a digest", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: { not: { not: { repo: x } } } }\n",
+			"digest w: not: inside not:"},
+		{"empty database with digests", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: {} }\ndatabase: \"\"\n", "database is empty"},
 	}
 	t.Setenv("WINNOW_TEST_EMPTY", "")
 	for _, tt := range tests {
@@ -143,7 +154,7 @@ routes:
 	}
 	want := []string{
 		`route typo: event "pull_requests" is not a known Event name`,
-		`sinks.dead: no route sends to this sink`,
+		`sinks.dead: no route or digest sends to this sink`,
 	}
 	if !slices.Equal(warns, want) {
 		t.Errorf("warnings = %q, want %q", warns, want)
@@ -246,3 +257,14 @@ func TestSampleConfiguration(t *testing.T) {
 		})
 	}
 }
+
+// digestErrorConfig is a valid configuration that ends with "digests:".
+// TestLoadErrors adds one Digest list to it.
+const digestErrorConfig = `
+sinks:
+  a: { discord: https://discord.example.invalid/1 }
+routes:
+  - match: {}
+    to: [a]
+digests:
+`

@@ -36,6 +36,10 @@ type entry struct {
 	msg   message
 	route string
 	attrs []any // the log fields of the Event
+	// done, when set, gets the result of the delivery: nil when Discord
+	// took the message, else a *failure. The outbox calls it before the
+	// failed delivery line.
+	done func(error)
 }
 
 // failure tells why a Sink did not deliver an Event. The Discord sender
@@ -80,19 +84,32 @@ func (o *outbox) deliver(e *Event, route *Route) {
 	defer o.mu.RUnlock()
 	for _, to := range route.To {
 		sk := o.sinks[to]
-		en := entry{route: route.Name, attrs: attrs}
-		select {
-		case <-o.drain:
-			o.logFailure(sk, en, &failure{reason: "shutdown"})
-			continue
-		default:
-		}
-		en.msg = render(e, sk.users)
-		select {
-		case sk.queue <- en:
-		default:
-			o.logFailure(sk, en, &failure{reason: "queue_full"})
-		}
+		o.enqueue(sk, entry{route: route.Name, attrs: attrs}, func() message { return render(e, sk.users) })
+	}
+}
+
+// send puts the message msg on the queue of the Sink to. en.done gets the
+// result.
+func (o *outbox) send(to string, msg message, en entry) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	o.enqueue(o.sinks[to], en, func() message { return msg })
+}
+
+// enqueue puts en with the message of msg on the queue of sk. It calls msg
+// only when the drain did not start. The caller holds the read lock.
+func (o *outbox) enqueue(sk *sink, en entry, msg func() message) {
+	select {
+	case <-o.drain:
+		o.fail(sk, en, &failure{reason: "shutdown"})
+		return
+	default:
+	}
+	en.msg = msg()
+	select {
+	case sk.queue <- en:
+	default:
+		o.fail(sk, en, &failure{reason: "queue_full"})
 	}
 }
 
@@ -118,13 +135,18 @@ func (o *outbox) run(ctx context.Context, sk *sink) {
 	for {
 		select {
 		case en := <-sk.queue:
-			if err := sk.discord.send(ctx, en.msg); err != nil {
-				f, ok := errors.AsType[*failure](err)
-				if !ok {
-					f = &failure{reason: "rejected", attempts: 1, detail: err.Error()}
+			err := sk.discord.send(ctx, en.msg)
+			if err == nil {
+				if en.done != nil {
+					en.done(nil)
 				}
-				o.logFailure(sk, en, f)
+				continue
 			}
+			f, ok := errors.AsType[*failure](err)
+			if !ok {
+				f = &failure{reason: "rejected", attempts: 1, detail: err.Error()}
+			}
+			o.fail(sk, en, f)
 		case <-o.drain:
 			if len(sk.queue) == 0 {
 				return
@@ -133,8 +155,11 @@ func (o *outbox) run(ctx context.Context, sk *sink) {
 	}
 }
 
-// logFailure writes the failed delivery line for en on sk.
-func (o *outbox) logFailure(sk *sink, en entry, f *failure) {
+// fail gives f to en.done and writes the failed delivery line for en on sk.
+func (o *outbox) fail(sk *sink, en entry, f *failure) {
+	if en.done != nil {
+		en.done(f)
+	}
 	attrs := append([]any{"reason", f.reason, "sink", sk.name, "route", en.route}, en.attrs...)
 	o.log.Error("delivery failed", append(attrs, "attempts", f.attempts, "status", f.status, "error", f.detail)...)
 }

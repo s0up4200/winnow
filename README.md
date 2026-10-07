@@ -9,9 +9,10 @@ Winnow has one binary, one container, and one YAML configuration file. [GLOSSARY
 The image is `ghcr.io/s0up4200/winnow`. It is private and for linux/amd64 only. A GitHub Actions workflow builds and pushes it for each tag that starts with `v`. Each push also moves the `latest` tag.
 
 1. Run `docker login ghcr.io` with a token that can read packages.
-2. Copy [winnow.example.yaml](winnow.example.yaml) to `winnow.yaml` and change it for your forges and channels.
-3. Put the secrets and the Discord webhook URLs in a `winnow.env` file next to it, one `NAME=value` on each line.
-4. Start winnow with Docker Compose:
+2. Make a `config` directory. Copy [winnow.example.yaml](winnow.example.yaml) to `config/winnow.yaml` and change it for your forges and channels.
+3. Put the secrets and the Discord webhook URLs in a `winnow.env` file next to the Compose file, one `NAME=value` on each line.
+4. If you use Digests, make the `config` directory writable for the user `65532` of the container: `sudo chown 65532 config`. Winnow keeps the store of the Digests in this directory.
+5. Start winnow with Docker Compose:
 
 ```yaml
 services:
@@ -21,7 +22,7 @@ services:
     stop_grace_period: 15s
     env_file: winnow.env
     volumes:
-      - ./winnow.yaml:/config/winnow.yaml:ro
+      - ./config:/config
     ports:
       - "127.0.0.1:8080:8080"
 ```
@@ -100,7 +101,7 @@ Each Route must have `match:` and exactly one of `to:` (a list of Sinks) and `dr
 A matcher has these fields:
 
 - `source`, `forge` (`github` or `forgejo`), `event`, `action`, `repo` (for example `autobrr/qui`), `owner`, `sender`, `ref`, and `review_state` take a string or a list of strings.
-- `sender_bot`, `merged`, `draft`, and `is_pull` take `true` or `false`.
+- `sender_bot`, `author_bot`, `merged`, `draft`, and `is_pull` take `true` or `false`.
 - `not:` takes one matcher or a list of matchers.
 
 These rules apply:
@@ -113,6 +114,7 @@ These rules apply:
 - A field that the Event does not have never matches. For example, `merged: true` does not match a push.
 - `repo`, `owner`, and `sender` match without case.
 - `sender_bot` is true when GitHub marks the sender as a bot, when the login ends in `[bot]`, or when the login is in `bots:`.
+- `author_bot` uses the same test on the author of the pull request or the issue, not on the sender. A Renovate pull request that a person merges has `author_bot: true`. An Event without a pull request or an issue has no author.
 
 `*` is the only wildcard. It matches any characters except `/`. Thus `repo: "autobrr/*"` matches each repository of `autobrr`, but `repo: "*"` matches no repository. To match all repositories, leave out the `repo` field. `[`, `]`, and `?` are normal characters, so `renovate[bot]` matches the bot login.
 
@@ -130,6 +132,44 @@ Winnow gives a Forgejo Event the GitHub name, so that one Rule matches on both f
 
 The Forgejo `workflow_run_<state>` and `workflow_job_<state>` names do not match `event: workflow_run`. To drop them, add `workflow_run_*` and `workflow_job_*` to the Route.
 
+### Digests
+
+A Digest sends one message for each Period. The message counts the Events that the Rules of the Digest matched in that Period. A Digest does not use the Routes. It also counts an Event that a Route drops, for example a star.
+
+```yaml
+digests:
+  - name: autobrr-weekly
+    every: weekly
+    at: "09:00"
+    to: autobrr
+    match: { owner: autobrr, not: { author_bot: true } }
+```
+
+Each Digest must have these keys:
+
+- `name`: a name that no other Digest has.
+- `every`: `daily`, `weekly`, `monthly`, or `yearly`. A week is Monday to Sunday.
+- `to`: the name of one Sink.
+- `match`: Rules with the same fields as the `match` of a Route.
+
+`at` is the send time, `HH:MM` in the time zone of the container (`TZ`). The default is `09:00`. Winnow sends the message of a Period at `at` on the first day after the Period. For example, a weekly Digest sends on Monday.
+
+The message shows the totals first. Then it shows one line for each repository, with the most active repository first. A Digest message never pings anyone. If a Period has no Events, winnow sends no message.
+
+The counts include only the Events that winnow received. The first Period of a new Digest is partial, and its footer tells the day of the first count. If you rename a Digest or change its `every`, winnow counts it as a new Digest. If you change the name or `every` back to an earlier value, winnow continues the earlier Digest. If you make `match` wider, the counts include only the new Events after the change. If you make `match` narrower, the next message uses the new `match` for the whole Period.
+
+If winnow is down at the send time, it sends the message of the last Period when it starts. It skips each older Period and writes a `digest skipped` line. If Discord does not take the message, winnow tries again each hour. After 24 hours, it writes a `digest failed` line. Winnow keeps the tries in memory. If winnow restarts in these 24 hours, the start handles the Period as after downtime.
+
+### The store
+
+Winnow keeps the Events that a Digest matches in a SQLite file. Winnow opens the file only when the configuration has Digests. The default path is `winnow.db` in the directory of the configuration file, thus `/config/winnow.db` in the container. To use a different path, set `database:`. A relative path is relative to the directory of the configuration file. If the file does not exist, winnow makes it. If winnow cannot open the file, or the file is damaged, winnow does not start.
+
+The user `65532` must be able to write to the directory of the file, because SQLite also writes the files `winnow.db-wal` and `winnow.db-shm` next to it. If `/config` is read-only, for example a Kubernetes ConfigMap, set `database:` to a path on a writable volume.
+
+Winnow keeps the stored Events and does not delete them. Two years of 200 Events each day use approximately 90 MB.
+
+To make a backup, stop winnow and copy the file. Alternatively, take a snapshot of the volume that includes the `winnow.db-wal` file.
+
 ## Check a change
 
 Winnow reads the configuration only at startup. To apply a change, do these steps:
@@ -138,7 +178,7 @@ Winnow reads the configuration only at startup. To apply a change, do these step
 2. If `winnow check` prints an error or a warning, correct the file and run the check again. The check exits with 1 when it finds an error or a warning.
 3. Restart winnow with `docker compose restart winnow`.
 
-`winnow check` uses the same checks as startup. An error stops startup, for example an unknown key such as `sendr:`, a Sink name in `to:` that is not in `sinks:`, or an unset variable. A warning does not stop startup. Winnow warns about an Event name that it does not know, for example `pull_requests`, and about a Sink that no Route uses.
+`winnow check` uses the same checks as startup. An error stops startup, for example an unknown key such as `sendr:`, a Sink name in `to:` that is not in `sinks:`, or an unset variable. A warning does not stop startup. Winnow warns about an Event name that it does not know, for example `pull_requests`, and about a Sink that no Route or Digest uses. `winnow check` does not open the store.
 
 ## Set up the webhooks
 
@@ -160,6 +200,6 @@ The Forgejo "Test delivery" button sends a normal push Event.
 
 ## Logs
 
-Winnow writes one log line for each Event. The line names the outcome (`sent`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. Winnow writes one Error line for each message that it cannot send to Discord. To send a delivery again, find its delivery ID in the forge.
+Winnow writes one log line for each Event. The line names the outcome (`sent`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. Winnow writes one Error line for each message that it cannot send to Discord. If winnow cannot write an Event to the store, it writes a `store write failed` line and sends the Event to its Routes as usual. To send a delivery again, find its delivery ID in the forge.
 
 The logs are JSON when the output is not a terminal. In a terminal, they are colored text.
