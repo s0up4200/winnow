@@ -100,8 +100,9 @@ type counts struct {
 	other                      map[string]int // each other Event, by "<event>.<action>"
 }
 
-// add counts e.
-func (c *counts) add(e *Event) {
+// add counts e and reports whether it counted e. An Other Event counts only
+// with includeOther.
+func (c *counts) add(e *Event, includeOther bool) bool {
 	merged := e.Merged != nil && *e.Merged
 	switch e.NameAction() {
 	case "pull_request.closed":
@@ -126,11 +127,15 @@ func (c *counts) add(e *Event) {
 	case "discussion.created":
 		c.discussions++
 	default:
+		if !includeOther {
+			return false
+		}
 		if c.other == nil {
 			c.other = map[string]int{}
 		}
 		c.other[e.NameAction()]++
 	}
+	return true
 }
 
 // activity orders the repository lines.
@@ -140,7 +145,7 @@ func (c *counts) activity() int {
 
 // summarize returns the Digest message for the Events of one Period. from
 // is the first-run time of the Digest when p is a partial Period, else the
-// zero time. It returns false when no Event matches d.
+// zero time. It returns false when d includes no Event.
 func summarize(d *Digest, p period, from time.Time, events []Event) (message, bool) {
 	type repo struct {
 		name, url string
@@ -154,12 +159,15 @@ func summarize(d *Digest, p period, from time.Time, events []Event) (message, bo
 		// The current Rules decide for the whole Period, so that a narrower
 		// match also leaves out the Events from before the change. GitHub
 		// sends watch.started and star.created for one star, so watch does
-		// not count. An unstar does not subtract.
+		// not count. An unstar does not subtract. The current include_other
+		// also decides for the whole Period.
 		if !d.Match.match(e) || e.Name == "watch" || e.NameAction() == "star.deleted" {
 			continue
 		}
+		if !total.add(e, bool(d.IncludeOther)) {
+			continue
+		}
 		n++
-		total.add(e)
 		if e.Repo == "" {
 			continue
 		}
@@ -169,7 +177,7 @@ func summarize(d *Digest, p period, from time.Time, events []Event) (message, bo
 			r = &repo{name: e.Repo, url: e.RepoURL}
 			repos[key] = r
 		}
-		r.add(e)
+		r.add(e, bool(d.IncludeOther))
 	}
 	if n == 0 {
 		return message{}, false

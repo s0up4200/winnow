@@ -76,8 +76,21 @@ type Digest struct {
 	At    string   `yaml:"at"`    // the send time, HH:MM in local time; Load sets 09:00 when the file has none
 	To    string   `yaml:"to"`    // the name of one Sink
 	Match Matchers `yaml:"match"`
+	// IncludeOther adds Other to the message. The default omits it.
+	IncludeOther strictBool `yaml:"include_other"`
 	// sendAt is At as the time after midnight. Load sets it.
 	sendAt time.Duration
+}
+
+// strictBool is a YAML boolean that takes only true or false. The decoder
+// also takes yes and on for a bool.
+type strictBool bool
+
+func (b *strictBool) UnmarshalYAML(n *yaml.Node) error {
+	if n.ShortTag() != "!!bool" {
+		return fmt.Errorf("line %d: want true or false, not %q", n.Line, n.Value)
+	}
+	return n.Decode((*bool)(b))
 }
 
 // Load parses a configuration file. Startup and `winnow check` both call it.

@@ -53,8 +53,12 @@ The list that links a forge login to a Discord user. Winnow pings only users in 
 _Avoid_: mention list, user mapping
 
 **Digest**:
-A configured summary: Rules, a Period, and a Sink. At the end of each Period, it sends one message that counts the Events that its Rules matched in that Period. A Digest does not depend on the Routes.
+A configured summary with Rules, a Period, and a Sink. It counts named activity from matching Events and can include Other by choice. A Digest does not depend on Routes.
 _Avoid_: summary, report, roundup, digest sink
+
+**Other**:
+Activity in a Digest outside its named counts for PRs, issues, releases, stars, forks, and new discussions.
+_Avoid_: noise
 
 **Period**:
 The calendar day, ISO week, calendar month, or calendar year that one Digest message covers.

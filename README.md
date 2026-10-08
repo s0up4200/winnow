@@ -160,11 +160,15 @@ Each Digest must have these keys:
 - `to`: the name of one Sink.
 - `match`: Rules with the same fields as the `match` of a Route.
 
+`include_other` adds the Other line to the message. Other Events are the Events outside the named counts, for example CI runs, packages, and comments. Each Other Event shows as `<event>.<action>`. The value must be `true` or `false`, and the default is `false`. With `false`, the message shows only the named counts: pull requests, issues, releases, stars, forks, and new discussions. It also leaves out each repository that has only Other Events, and the footer does not count that repository. If a Period has only Other Events, winnow sends no message for it.
+
 `at` is the send time, `HH:MM` in the time zone of the container (`TZ`). The default is `09:00`. Winnow sends the message of a Period at `at` on the first day after the Period. For example, a weekly Digest sends on Monday.
 
 The message shows the totals first. Then it shows one line for each repository, with the most active repository first. A Digest message never pings anyone. If a Period has no Events, winnow sends no message.
 
 The counts include only the Events that winnow received. The first Period of a new Digest is partial, and its footer tells the day of the first count. If you rename a Digest or change its `every`, winnow counts it as a new Digest. If you change the name or `every` back to an earlier value, winnow continues the earlier Digest. If you make `match` wider, the counts include only the new Events after the change. If you make `match` narrower, the next message uses the new `match` for the whole Period.
+
+Winnow keeps each Other Event that `match` matches, also when `include_other` is `false`. A change to `include_other` takes effect when winnow restarts. The next message uses the new value for the whole Period. So `true` also includes the Other Events from before the change. Winnow does not send a Period again if it already sent it, skipped it, found it empty, or gave up on it.
 
 If winnow is down at the send time, it sends the message of the last Period when it starts. It skips each older Period and writes a `digest skipped` line. If Discord does not take the message, winnow tries again each hour. After 24 hours, it writes a `digest failed` line. Winnow keeps the tries in memory. If winnow restarts in these 24 hours, the start handles the Period as after downtime.
 

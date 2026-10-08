@@ -88,8 +88,39 @@ func (h *harness) oneDigest() embed {
 	return got[0]
 }
 
+// withOther sets include_other on the last Digest of config. An empty value
+// omits the option.
+func withOther(config, value string) string {
+	if value == "" {
+		return config
+	}
+	return config + "    include_other: " + value + "\n"
+}
+
+// otherOnly returns a label.created delivery in the repository
+// autobrr/other-only, which has no named activity.
+func (h *harness) otherOnly() *http.Request {
+	body := bytes.ReplaceAll(fixture(h.t, "github/label_created"), []byte("autobrr/qui"), []byte("autobrr/other-only"))
+	return signedDelivery("github-autobrr", "label", body)
+}
+
 func TestDigestCountsEachMetric(t *testing.T) {
-	h := newHarness(t, digestConfig("weekly", "{}"))
+	const named = "**Pull requests**  2 merged, 1 opened, 1 closed\\n**Issues**  2 opened, 1 closed\\n**Releases**  2\\n**Stars**  1 · **Forks**  1 · **Discussions**  1"
+	const repos = "[Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  1 issue · 1 star · 0.0.1\\n[soup/winnow-test](https://example.invalid/soup/winnow-test)  1 merged · 1 issue · v1.0.0\\n[autobrr/qui](https://github.example.invalid/autobrr/qui)  1 merged"
+	tests := []struct{ includeOther, description, footer string }{
+		{"", named + "\\n\\n" + repos, "3 repositories"},
+		{"false", named + "\\n\\n" + repos, "3 repositories"},
+		{"true", named + "\\n**Other**  2 label.created\\n\\n" + repos + "\\n[autobrr/other-only](https://github.example.invalid/autobrr/other-only)", "4 repositories"},
+	}
+	for _, tt := range tests {
+		t.Run("include_other="+tt.includeOther, func(t *testing.T) {
+			testDigestCountsEachMetric(t, tt.includeOther, tt.description, tt.footer)
+		})
+	}
+}
+
+func testDigestCountsEachMetric(t *testing.T, includeOther, description, footer string) {
+	h := newHarness(t, withOther(digestConfig("weekly", "{}"), includeOther))
 	h.step(day(9, 29, 0, 0))
 	at := day(10, 1, 12, 0)
 	for _, d := range []struct{ event, name string }{
@@ -117,14 +148,15 @@ func TestDigestCountsEachMetric(t *testing.T) {
 	} {
 		h.receive(at, forgejoDelivery("forgejo", d.event, d.event, fixture(t, "forgejo/"+d.name)))
 	}
+	h.receive(at, h.otherOnly())
 	h.step(day(10, 6, 9, 0))
 	h.restart(h.config)
 	assertJSON(t, h.waitDiscord().Body, `{`+githubPoster+`,
 		"embeds": [{
 			"title": "Digest: week 40, 29 September – 5 October",
-			"description": "**Pull requests**  2 merged, 1 opened, 1 closed\n**Issues**  2 opened, 1 closed\n**Releases**  2\n**Stars**  1 · **Forks**  1 · **Discussions**  1\n**Other**  1 label.created\n\n[Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  1 issue · 1 star · 0.0.1\n[soup/winnow-test](https://example.invalid/soup/winnow-test)  1 merged · 1 issue · v1.0.0\n[autobrr/qui](https://github.example.invalid/autobrr/qui)  1 merged",
+			"description": "`+description+`",
 			"color": 14922561,
-			"footer": {"text": "3 repositories"}
+			"footer": {"text": "`+footer+`"}
 		}],
 		"allowed_mentions": {"parse": []}}`)
 }
@@ -149,6 +181,17 @@ func TestDigestPeriodEdges(t *testing.T) {
 }
 
 func TestDigestTitles(t *testing.T) {
+	// The default omits Other in each Period kind. include_other: true adds
+	// it in each Period kind.
+	for _, tt := range []struct{ includeOther, description, footer string }{
+		{"", `**Stars**  1\n\n[Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  1 star`, "1 repository"},
+		{"true", `**Stars**  1\n**Other**  1 label.created\n\n[Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  1 star\n[autobrr/qui](https://github.example.invalid/autobrr/qui)`, "2 repositories"},
+	} {
+		t.Run("include_other="+tt.includeOther, func(t *testing.T) { testDigestTitles(t, tt.includeOther, tt.description, tt.footer) })
+	}
+}
+
+func testDigestTitles(t *testing.T, includeOther, description, footer string) {
 	tests := []struct {
 		every       string
 		first, recv time.Time
@@ -162,17 +205,18 @@ func TestDigestTitles(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.every, func(t *testing.T) {
-			h := newHarness(t, digestConfig(tt.every, "{}"))
+			h := newHarness(t, withOther(digestConfig(tt.every, "{}"), includeOther))
 			h.step(tt.first)
 			h.receive(tt.recv, h.github("star", "star_created"))
+			h.receive(tt.recv, h.github("label", "label_created"))
 			h.step(tt.send)
 			h.restart(h.config)
 			assertJSON(t, h.waitDiscord().Body, `{`+githubPoster+`,
 				"embeds": [{
 					"title": "`+tt.want+`",
-					"description": "**Stars**  1\n\n[Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  1 star",
+					"description": "`+description+`",
 					"color": 14922561,
-					"footer": {"text": "1 repository"}
+					"footer": {"text": "`+footer+`"}
 				}],
 				"allowed_mentions": {"parse": []}}`)
 		})
@@ -210,14 +254,98 @@ func TestDigestPeriodWithoutEventsSendsNothing(t *testing.T) {
 }
 
 func TestDigestPeriodWithOnlyIgnoredEventsSendsNothing(t *testing.T) {
-	h := newHarness(t, digestConfig("weekly", "{event: [star, watch]}"))
+	for _, includeOther := range []string{"", "false", "true"} {
+		t.Run("include_other="+includeOther, func(t *testing.T) {
+			h := newHarness(t, withOther(digestConfig("weekly", "{event: [star, watch]}"), includeOther))
+			h.step(day(9, 29, 0, 0))
+			h.receive(day(10, 1, 12, 0), h.github("watch", "watch_started"))
+			unstar := bytes.Replace(fixture(t, "github/star_created"), []byte(`"action": "created"`), []byte(`"action": "deleted"`), 1)
+			h.receive(day(10, 1, 12, 0), signedDelivery("github-autobrr", "star", unstar))
+			h.step(day(10, 6, 9, 0))
+			if got := h.digests(); len(got) != 0 {
+				t.Errorf("got %d messages, want 0: %+v", len(got), got)
+			}
+		})
+	}
+}
+
+func TestDigestPeriodWithOnlyOtherEvents(t *testing.T) {
+	for _, includeOther := range []string{"", "false"} {
+		t.Run("include_other="+includeOther, func(t *testing.T) {
+			h := newHarness(t, withOther(digestConfig("weekly", "{}"), includeOther))
+			h.step(day(9, 29, 0, 0))
+			h.receive(day(10, 1, 12, 0), h.github("label", "label_created"))
+			h.step(day(10, 6, 9, 0))
+			if got := h.digests(); len(got) != 0 {
+				t.Fatalf("got %d messages, want 0: %+v", len(got), got)
+			}
+			// The Period is empty. Opt-in does not send it again.
+			h.restart(withOther(digestConfig("weekly", "{}"), "true"))
+			h.step(day(10, 6, 10, 0))
+			if got := h.digests(); len(got) != 0 {
+				t.Errorf("got %d messages after opt-in, want 0: %+v", len(got), got)
+			}
+		})
+	}
+	t.Run("include_other=true", func(t *testing.T) {
+		h := newHarness(t, withOther(digestConfig("weekly", "{}"), "true"))
+		h.step(day(9, 29, 0, 0))
+		h.receive(day(10, 1, 12, 0), h.github("label", "label_created"))
+		h.step(day(10, 6, 9, 0))
+		got := h.oneDigest()
+		if want := "**Other**  1 label.created\n\n[autobrr/qui](https://github.example.invalid/autobrr/qui)"; got.Description != want || got.Footer.Text != "1 repository" {
+			t.Errorf("description %q, footer %q, want %q and 1 repository", got.Description, got.Footer.Text, want)
+		}
+	})
+}
+
+func TestDigestIncludeOtherAppliesToWholePeriod(t *testing.T) {
+	config := func(includeOther string) string { return withOther(digestConfig("weekly", "{}"), includeOther) }
+	h := newHarness(t, config("false"))
 	h.step(day(9, 29, 0, 0))
-	h.receive(day(10, 1, 12, 0), h.github("watch", "watch_started"))
-	unstar := bytes.Replace(fixture(t, "github/star_created"), []byte(`"action": "created"`), []byte(`"action": "deleted"`), 1)
-	h.receive(day(10, 1, 12, 0), signedDelivery("github-autobrr", "star", unstar))
+	h.receive(day(9, 30, 12, 0), h.github("star", "star_created"))
+	h.receive(day(9, 30, 12, 0), h.github("label", "label_created"))
+	// Opt-in includes the earlier Other Event of the pending Period.
+	h.restart(config("true"))
 	h.step(day(10, 6, 9, 0))
-	if got := h.digests(); len(got) != 0 {
-		t.Errorf("got %d messages, want 0: %+v", len(got), got)
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**Other**  1 label.created") {
+		t.Errorf("week 40 = %q, want the label after opt-in", got.Description)
+	}
+	h.receive(day(10, 7, 12, 0), h.github("star", "star_created"))
+	h.receive(day(10, 7, 12, 0), h.github("label", "label_created"))
+	// Opt-out leaves out the earlier Other Event of the pending Period. The
+	// sent week 40 does not go again.
+	h.restart(config("false"))
+	h.step(day(10, 13, 9, 0))
+	got := h.oneDigest()
+	if got.Title != "Digest: week 41, 6 October – 12 October" || strings.Contains(got.Description, "Other") {
+		t.Errorf("title %q, description %q, want week 41 without Other", got.Title, got.Description)
+	}
+}
+
+func TestDigestIncludeOtherIsPerDigest(t *testing.T) {
+	h := newHarness(t, digestConfig("weekly", "{}")+`
+  - name: detailed
+    every: weekly
+    to: digest
+    match: {}
+    include_other: true
+`)
+	h.step(day(9, 29, 0, 0))
+	h.receive(day(10, 1, 12, 0), h.github("star", "star_created"))
+	h.receive(day(10, 1, 12, 0), h.otherOnly())
+	h.step(day(10, 6, 9, 0))
+	got := h.digests()
+	if len(got) != 2 {
+		t.Fatalf("got %d messages, want 2", len(got))
+	}
+	want := map[string]bool{"1 repository": false, "2 repositories": true}
+	for _, e := range got {
+		other, ok := want[e.Footer.Text]
+		if !ok || strings.Contains(e.Description, "**Other**  1 label.created") != other {
+			t.Errorf("footer %q, description %q", e.Footer.Text, e.Description)
+		}
+		delete(want, e.Footer.Text)
 	}
 }
 

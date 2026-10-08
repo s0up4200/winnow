@@ -121,8 +121,10 @@ routes:
 alerts: soup
 
 # One weekly message for autobrr. It also counts the forks that the
-# stars-forks Route drops. Winnow keeps the store of the Digests in winnow.db
-# next to this file, so this directory must be writable.
+# stars-forks Route drops. Set include_other: true to also count the Events
+# outside the named counts, for example CI runs and comments. Winnow keeps
+# the store of the Digests in winnow.db next to this file, so this directory
+# must be writable.
 digests:
   - name: autobrr-weekly
     every: weekly

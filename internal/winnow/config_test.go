@@ -118,6 +118,8 @@ routes:
 		{"digest with no match", digestErrorConfig + "  - { name: w, every: weekly, to: a }\n", "digest w: match is missing"},
 		{"bad matcher in a digest", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: { not: { not: { repo: x } } } }\n",
 			"digest w: not: inside not:"},
+		{"include_other that is not a boolean", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: {}, include_other: maybe }\n", `want true or false, not "maybe"`},
+		{"include_other: yes", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: {}, include_other: yes }\n", `want true or false, not "yes"`},
 		{"empty database with digests", digestErrorConfig + "  - { name: w, every: weekly, to: a, match: {} }\ndatabase: \"\"\n", "database is empty"},
 		{"sweep with no org", "sources:\n  s: { secret: x, sweep: { token: t, hook: 1 } }\n", "sources.s.sweep.org is empty"},
 		{"sweep with no hook", "sources:\n  s: { secret: x, sweep: { token: t, org: autobrr } }\n", "sources.s.sweep.hook is missing"},
@@ -139,6 +141,18 @@ routes:
 				t.Errorf("errors = %v, want one error with %q", errs, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadIncludeOther(t *testing.T) {
+	for value, want := range map[string]bool{"": false, ", include_other: false": false, ", include_other: true": true} {
+		cfg, errs, _ := Load([]byte(digestErrorConfig + "  - { name: w, every: weekly, to: a, match: {}" + value + " }\n"))
+		if len(errs) > 0 {
+			t.Fatalf("%q: errors = %v", value, errs)
+		}
+		if got := bool(cfg.Digests[0].IncludeOther); got != want {
+			t.Errorf("%q: include_other = %v, want %v", value, got, want)
+		}
 	}
 }
 
