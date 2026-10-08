@@ -25,13 +25,8 @@ const maxMentionScan = 256 << 10
 
 var mentionLogin = regexp.MustCompile(`@([[:alnum:]_][[:alnum:]_.-]*)`)
 
-// htmlMarkup matches a hidden comment, a declaration, a processing
-// instruction, CDATA, or a tag in an HTML block. An unclosed hidden comment
-// hides the rest of the block.
-var htmlMarkup = regexp.MustCompile(`(?s)<!--.*?(?:-->|$)|<\?.*?\?>|<![[:alpha:]][^>]*>|<!\[CDATA\[.*?\]\]>|</?[[:alpha:]][[:alnum:]-]*(?:[[:space:]](?:[^<>"']|"[^"]*"|'[^']*')*)?/?>`)
-
 // commentMentions reads a comment and returns mapped IDs in text order.
-// It leaves quoted text, code, hidden comments, and URLs quiet. A comment
+// It leaves quoted text, code, HTML blocks and tags, and URLs quiet. A comment
 // longer than maxMentionScan returns no IDs.
 func commentMentions(body, sender string, users map[string]string) []string {
 	if len(body) > maxMentionScan {
@@ -78,29 +73,7 @@ func commentMentions(body, sender string, users map[string]string) []string {
 			return ast.WalkContinue, nil
 		}
 		switch n := n.(type) {
-		case *ast.Blockquote, *ast.CodeBlock, *ast.FencedCodeBlock, *ast.CodeSpan, *ast.RawHTML, *ast.AutoLink, *ast.Image:
-			return ast.WalkSkipChildren, nil
-		case *ast.HTMLBlock:
-			// Scan the text before the block first, to keep the text order.
-			flush()
-			// Text after a closed tag or hidden comment is visible. The other
-			// block types (pre, script, declarations, CDATA) show no mentions.
-			if (n.HTMLBlockType != ast.HTMLBlockType2 && n.HTMLBlockType != ast.HTMLBlockType6 && n.HTMLBlockType != ast.HTMLBlockType7) || n.Lines().Len() == 0 {
-				return ast.WalkSkipChildren, nil
-			}
-			start, stop := n.Lines().At(0).Start, n.Lines().At(n.Lines().Len()-1).Stop
-			if n.HasClosure() {
-				stop = n.ClosureLine.Stop
-			}
-			for start < stop {
-				m := htmlMarkup.FindIndex(src[start:stop])
-				if m == nil {
-					break
-				}
-				scan(start, start+m[0])
-				start += m[1]
-			}
-			scan(start, stop)
+		case *ast.Blockquote, *ast.CodeBlock, *ast.FencedCodeBlock, *ast.CodeSpan, *ast.HTMLBlock, *ast.RawHTML, *ast.AutoLink, *ast.Image:
 			return ast.WalkSkipChildren, nil
 		case *ast.Text:
 			if n.Segment.Start != runStop {

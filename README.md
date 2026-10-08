@@ -75,9 +75,7 @@ A Sink pings a Discord user only when it has `mentions: true` and the user is in
 
 Comment pings apply to new issue comments, comments on pull requests, code review comments, and discussion comments on GitHub and Forgejo. A submitted review summary does not cause comment pings. Edits, deletions, and issue, pull request, or discussion bodies do not cause comment pings.
 
-Mentions in blockquotes, inline code, fenced and indented code blocks, URLs, image alt text, hidden HTML comments, footnote labels, and escaped mentions stay quiet. Team mentions and unmapped users stay quiet. Raw Discord mention text cannot add pings. Pings appear above the embed, and the comment keeps its forge login text. A mention beyond the excerpt limit still pings. A comment larger than 256 KiB causes no pings. GitHub comments are never that large. Each message pings distinct users in mention order, up to 100 users and 2,000 content characters. Excess users stay quiet so that Discord can accept the comment notification.
-
-Existing Routes decide whether a Bot sender or Backfill reaches a Sink. A Route accepts Backfills only with `backfill: true`. Accepted Backfills use the same comment ping rules.
+Mentions in blockquotes, inline code, fenced and indented code blocks, URLs, image alt text, hidden HTML comments, lines of raw HTML such as `<details>` without a blank line after it, footnote labels, and escaped mentions stay quiet. Team mentions and unmapped users stay quiet. Raw Discord mention text cannot add pings. Pings appear above the embed, and the comment keeps its forge login text. A mention beyond the excerpt limit still pings. A comment larger than 256 KiB causes no pings. GitHub comments are never that large. Each message pings distinct users in mention order, up to 100 users and 2,000 content characters. Excess users stay quiet so that Discord can accept the comment notification.
 
 ```yaml
 users:
