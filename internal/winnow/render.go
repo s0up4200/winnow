@@ -34,6 +34,9 @@ const (
 	maxDescription = 4096
 )
 
+// maxPingUsers is the Discord limit of user IDs in allowed_mentions.
+const maxPingUsers = 100
+
 // maxExcerptBody is the number of bytes of a body that excerpt reads. Only
 // 4096 characters reach Discord, so a larger body only costs memory.
 //
@@ -47,7 +50,8 @@ const maxExcerptBody = 256 << 10
 // the zero embed, gets the Fallback message. The Poster of each message is
 // the forge of the Event. The message pings the target of e when users holds
 // the target and the target is not the sender. With no User map, the message
-// never pings. A Fallback message never pings.
+// never pings. New comments also ping mapped logins in ordinary text.
+// A Fallback message never pings.
 func render(e *Event, users map[string]string) message {
 	var em embed
 	switch e.Name {
@@ -100,6 +104,22 @@ func render(e *Event, users map[string]string) message {
 	if id, ok := users[strings.ToLower(e.Target)]; ok && ping && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
 		msg.Content = "<@" + id + ">"
 		msg.AllowedMentions.Users = []string{id}
+	}
+	if ping && len(users) > 0 {
+		switch e.NameAction() {
+		case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
+			for _, id := range commentMentions(e.Body, e.Sender, users) {
+				mention := "<@" + id + ">"
+				if msg.Content != "" {
+					mention = " " + mention
+				}
+				if len(msg.AllowedMentions.Users) == maxPingUsers || len(msg.Content)+len(mention) > 2000 {
+					break
+				}
+				msg.Content += mention
+				msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
+			}
+		}
 	}
 	return msg
 }
