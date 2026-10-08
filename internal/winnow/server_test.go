@@ -206,8 +206,8 @@ func TestDecisionLogLevels(t *testing.T) {
 		t.Run(level.String(), func(t *testing.T) {
 			h := &harness{t: t, logs: &syncBuffer{}}
 			s := &Server{log: slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: level}))}
-			for _, outcome := range []string{"matched", "dropped", "unmatched"} {
-				s.logDecision(&Event{}, outcome, "", []string{})
+			for _, o := range []outcome{matched, dropped, unmatched} {
+				s.logDecision(&Event{}, o, "", []string{})
 			}
 			lines := h.linesWith("routed")
 			want := []map[string]any{{"outcome": "matched", "level": "INFO"}}

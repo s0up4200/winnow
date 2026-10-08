@@ -218,9 +218,8 @@ func (s *Server) sweepOnce(ctx context.Context, w *sweeper, now time.Time) (int,
 	return n, nil
 }
 
-// backfill stores the delivery d with the first attempt m as a Backfill,
-// and sends it when the first Route that matches it accepts Backfills. It
-// returns false when the delivery is not an Event.
+// backfill admits the delivery d with the first attempt m as a Backfill.
+// It returns false when the delivery is not an Event.
 func (s *Server) backfill(source string, m delivery, d *delivery) bool {
 	// The payload is parsed JSON, not the signed body, so winnow does not
 	// check a signature. Winnow trusts the API reply.
@@ -236,17 +235,7 @@ func (s *Server) backfill(source string, m delivery, d *delivery) bool {
 	if e.Name == "ping" {
 		return false
 	}
-	s.storeEvent(e, m.DeliveredAt)
-	route := s.cfg.route(e)
-	switch {
-	case route == nil:
-		s.logDecision(e, "unmatched", "", []string{}, "backfill", true)
-	case !route.Backfill:
-		s.logDecision(e, "dropped", route.Name, []string{}, "backfill", true)
-	default:
-		s.logDecision(e, "matched", route.Name, route.To, "backfill", true)
-		s.outbox.deliver(e, route)
-	}
+	s.admit(e, m.DeliveredAt, true)
 	return true
 }
 

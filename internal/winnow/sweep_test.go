@@ -315,6 +315,43 @@ func TestSweepSkipsHandledDeliveries(t *testing.T) {
 	}
 }
 
+func TestRedeliveryAfterBackfillRoutes(t *testing.T) {
+	h := newHarness(t, sweepConfig)
+	h.step(day(10, 1, 11, 0))
+	guid := h.missed("star", "star_created", day(10, 1, 12, 0), 502)
+	// The Route rest does not accept Backfills, so the Sweep posts nothing.
+	h.step(day(10, 1, 12, 15))
+	// A redelivery from GitHub is how an operator sends that Event.
+	req := h.github("star", "star_created")
+	req.Header.Set("X-GitHub-Delivery", guid)
+	h.clock = day(10, 1, 13, 0)
+	if got := h.do(req).Code; got != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", got, http.StatusAccepted)
+	}
+	h.step(day(10, 2, 9, 0))
+
+	var rest int
+	var digests []embed
+	for _, r := range h.drain() {
+		switch r.Sink {
+		case "rest":
+			rest++
+		case "digest":
+			var m message
+			if err := json.Unmarshal(r.Body, &m); err != nil {
+				t.Fatal(err)
+			}
+			digests = append(digests, m.Embeds...)
+		}
+	}
+	if rest != 1 {
+		t.Errorf("got %d messages to rest, want 1", rest)
+	}
+	if len(digests) != 1 || !strings.Contains(digests[0].Description, "**Stars**  1") {
+		t.Errorf("digests = %+v, want one with one star", digests)
+	}
+}
+
 func TestSweepDetailFailureKeepsDelivery(t *testing.T) {
 	h := newHarness(t, sweepConfig)
 	h.step(day(10, 1, 11, 0))

@@ -144,32 +144,58 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	// The Route decision does not change whether winnow stores the Event
-	// (ADR 0007).
-	s.storeEvent(e, s.now())
+	if s.admit(e, s.now(), false) == matched {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// outcome is what the Routes did with an Event. It is the outcome field of
+// the decision line.
+type outcome string
+
+const (
+	matched   outcome = "matched"
+	unmatched outcome = "unmatched"
+	dropped   outcome = "dropped"
+)
+
+// admit stores e with at as the receive time, and sends it to the Sinks of
+// the first Route that matches it. The Route decision does not change
+// whether winnow stores the Event (ADR 0007). A Backfill goes to the Sinks
+// only when that Route accepts Backfills (ADR 0008).
+func (s *Server) admit(e *Event, at time.Time, backfill bool) outcome {
+	s.storeEvent(e, at)
 	// Winnow claims a live delivery, so that a Sweep skips it. GitHub can
 	// mark a delivery as failed when the tunnel drops the reply. The
-	// delivery ID is the GUID of the delivery.
-	if s.store != nil && len(s.sweepers) > 0 && e.Delivery != "" {
+	// delivery ID is the GUID of the delivery. The claim comes after the
+	// store, so that a crash between the two does not hide the Event from
+	// the Digests. A claim that a Sweep made first does not stop the Routes:
+	// a redelivery from GitHub is how an operator sends an Event that a
+	// Sweep stored as a Backfill and that its Route did not send. A Sweep
+	// claims a Backfill itself, before it parses the delivery.
+	if !backfill && s.store != nil && len(s.sweepers) > 0 && e.Delivery != "" {
 		if _, err := s.store.claim(e.Delivery, s.now()); err != nil {
 			s.log.Error("store write failed", append(e.logAttrs(), "error", err)...)
 		}
 	}
-
+	var extra []any
+	if backfill {
+		extra = []any{"backfill", true}
+	}
 	route := s.cfg.route(e)
-	if route == nil {
-		s.logDecision(e, "unmatched", "", []string{})
-		w.WriteHeader(http.StatusNoContent)
-		return
+	switch {
+	case route == nil:
+		s.logDecision(e, unmatched, "", []string{}, extra...)
+		return unmatched
+	case route.Drop, backfill && !route.Backfill:
+		s.logDecision(e, dropped, route.Name, []string{}, extra...)
+		return dropped
 	}
-	if route.Drop {
-		s.logDecision(e, "dropped", route.Name, []string{})
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	s.logDecision(e, "matched", route.Name, route.To)
+	s.logDecision(e, matched, route.Name, route.To, extra...)
 	s.outbox.deliver(e, route)
-	w.WriteHeader(http.StatusAccepted)
+	return matched
 }
 
 // storeEvent stores e, with at as the receive time, for each Digest that matches
@@ -190,10 +216,10 @@ func (s *Server) storeEvent(e *Event, at time.Time) {
 
 // logDecision writes the decision line: what the Routes did with e. extra
 // holds more fields for the line.
-func (s *Server) logDecision(e *Event, outcome, route string, sinks []string, extra ...any) {
-	attrs := []any{"outcome", outcome, "route", route, "sinks", sinks, "sender", e.Sender}
+func (s *Server) logDecision(e *Event, o outcome, route string, sinks []string, extra ...any) {
+	attrs := []any{"outcome", string(o), "route", route, "sinks", sinks, "sender", e.Sender}
 	level := slog.LevelDebug
-	if outcome == "matched" {
+	if o == matched {
 		level = slog.LevelInfo
 	}
 	s.log.Log(context.Background(), level, "routed", slices.Concat(attrs, e.logAttrs(), extra)...)
