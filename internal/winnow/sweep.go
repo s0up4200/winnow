@@ -173,7 +173,7 @@ func (s *Server) sweep(ctx context.Context, w *sweeper, now time.Time) error {
 	// Sweep counts them, so the line comes also after a failure.
 	if n > 0 {
 		s.log.Info("swept", "source", w.source, "backfills", n)
-		s.alert(fmt.Sprintf("Swept %s for %s", plural(n, "missed delivery"), w.source), "")
+		s.alert(fmt.Sprintf("Sweep of %s found %s", w.source, plural(n, "missed delivery")), "")
 	}
 	return err
 }

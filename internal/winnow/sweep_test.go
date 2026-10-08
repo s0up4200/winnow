@@ -232,7 +232,7 @@ func TestSweepBackfillRoutes(t *testing.T) {
 	if want := live.waitDiscord().Body; string(got[i].Body) != string(want) {
 		t.Errorf("Backfill message\n%s\nwant the live message\n%s", got[i].Body, want)
 	}
-	if titles := alertTitles(t, got); !slices.Equal(titles, []string{"Swept 2 missed deliveries for github-autobrr"}) {
+	if titles := alertTitles(t, got); !slices.Equal(titles, []string{"Sweep of github-autobrr found 2 missed deliveries"}) {
 		t.Errorf("alerts = %q", titles)
 	}
 	// The star matches the Route rest, which does not accept Backfills. It
@@ -328,7 +328,7 @@ func TestSweepDetailFailureKeepsDelivery(t *testing.T) {
 	// The next tick tries again.
 	h.step(day(10, 1, 12, 16))
 	got := h.drain()
-	if titles := alertTitles(t, got); !slices.Equal(titles, []string{"Sweep of github-autobrr failed", "Sweep of github-autobrr works again", "Swept 1 missed delivery for github-autobrr"}) {
+	if titles := alertTitles(t, got); !slices.Equal(titles, []string{"Sweep of github-autobrr failed", "Sweep of github-autobrr works again", "Sweep of github-autobrr found 1 missed delivery"}) {
 		t.Errorf("alerts = %q", titles)
 	}
 	if !slices.ContainsFunc(got, func(r discordRequest) bool { return r.Sink == "releases" }) {
@@ -438,7 +438,7 @@ func TestSweepAlertsOnFailureAndRecovery(t *testing.T) {
 				got := h.drain()
 				titles := alertTitles(t, got)
 				// The detail case also sends an alert for the recovered Backfill.
-				titles = slices.DeleteFunc(titles, func(title string) bool { return strings.HasPrefix(title, "Swept ") })
+				titles = slices.DeleteFunc(titles, func(title string) bool { return strings.HasPrefix(title, "Sweep of github-autobrr found ") })
 				if !slices.Equal(titles, []string{"Sweep of github-autobrr failed", "Sweep of github-autobrr works again"}) {
 					t.Errorf("alerts = %q", titles)
 				}
@@ -470,7 +470,7 @@ func TestSweepCountsBackfillsBeforeAFailure(t *testing.T) {
 	h.missed("release", "release_published", day(10, 1, 12, 1), 502)
 	h.gh.fail[2] = http.StatusInternalServerError
 	h.step(day(10, 1, 12, 15))
-	if titles := alertTitles(t, h.drain()); !slices.Contains(titles, "Swept 1 missed delivery for github-autobrr") {
+	if titles := alertTitles(t, h.drain()); !slices.Contains(titles, "Sweep of github-autobrr found 1 missed delivery") {
 		t.Errorf("alerts = %q, want the line for the Backfill before the failure", titles)
 	}
 }
