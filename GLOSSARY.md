@@ -52,6 +52,10 @@ _Avoid_: autolink, mention
 The list that links a forge login to a Discord user. Winnow pings only users in this list.
 _Avoid_: mention list, user mapping
 
+**Ping**:
+A Discord notification that winnow sends to a user in the User map, for a review request, an assignment, or an `@login` in a new comment.
+_Avoid_: mention, notify
+
 **Digest**:
 A configured summary with Rules, a Period, and a Sink. It counts named activity from matching Events and can include Other by choice. A Digest does not depend on Routes.
 _Avoid_: summary, report, roundup, digest sink

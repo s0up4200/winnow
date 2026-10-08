@@ -51,8 +51,10 @@ type Sweep struct {
 
 // SinkConfig is the configuration of one Sink.
 type SinkConfig struct {
-	Discord  string `yaml:"discord"`
-	Mentions bool   `yaml:"mentions"` // keep the ping of a message
+	Discord string `yaml:"discord"`
+	// Mentions is the raw mentions value. Load reads it into kinds.
+	Mentions yaml.Node `yaml:"mentions"`
+	kinds    pingKinds // the kinds of Ping that the Sink keeps
 	// retryBase is the retry base of the Discord sender; 0 means 1 s. It is
 	// not in the file. Tests set a few milliseconds.
 	retryBase time.Duration
@@ -91,6 +93,46 @@ func (b *strictBool) UnmarshalYAML(n *yaml.Node) error {
 		return fmt.Errorf("line %d: want true or false, not %q", n.Line, n.Value)
 	}
 	return n.Decode((*bool)(b))
+}
+
+// pingKindNames holds the kinds of Ping. mentions: true means all of them.
+// review_requested and assigned are also the Event actions that set Target,
+// so render reads the kind of a Target Ping from the action.
+var pingKindNames = []string{"review_requested", "assigned", "comments"}
+
+// pingKinds is the set of kinds of Ping that a Sink keeps. Nil keeps no kind.
+type pingKinds map[string]bool
+
+// parsePingKinds reads the mentions value of a Sink: true, false, or a list
+// of kinds. A missing key keeps no kind. An empty value is an error.
+func parsePingKinds(n *yaml.Node) (pingKinds, error) {
+	var kinds []string
+	switch {
+	case n.Kind == 0: // no mentions key
+		return nil, nil
+	case n.ShortTag() == "!!bool":
+		var on bool
+		if err := n.Decode(&on); err != nil {
+			return nil, err
+		}
+		if on {
+			kinds = pingKindNames
+		}
+	case n.Kind == yaml.SequenceNode:
+		if err := n.Decode(&kinds); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("want true, false, or a list of kinds, not %q", n.Value)
+	}
+	k := pingKinds{}
+	for _, kind := range kinds {
+		if !slices.Contains(pingKindNames, kind) {
+			return nil, fmt.Errorf("unknown kind of Ping %q: want review_requested, assigned, or comments", kind)
+		}
+		k[kind] = true
+	}
+	return k, nil
 }
 
 // Load parses a configuration file. Startup and `winnow check` both call it.
@@ -133,6 +175,10 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sinks)) {
 		s := cfg.Sinks[name]
 		required("sinks."+name+".discord", &s.Discord)
+		var err error
+		if s.kinds, err = parsePingKinds(&s.Mentions); err != nil {
+			errs = append(errs, fmt.Errorf("sinks.%s.mentions: %w", name, err))
+		}
 		cfg.Sinks[name] = s
 	}
 	used := map[string]bool{}

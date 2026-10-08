@@ -71,7 +71,34 @@ sinks:
   qui: { discord: "${WINNOW_DISCORD_QUI}", mentions: true }
 ```
 
-A Sink pings a Discord user only when it has `mentions: true` and the user is in `users:`. Winnow pings users for review requests, assignments, and direct `@login` mentions in new comments. Login matching ignores letter case. Repeated mentions and aliases produce one ping per Discord user ID. Winnow does not ping the sender for their own login.
+A Sink pings a Discord user only when the Sink keeps the kind of Ping and the user is in `users:`. The `mentions` value of a Sink sets the kinds of Ping that it keeps:
+
+- `mentions: true` keeps all kinds.
+- `mentions: false`, `mentions: []`, or no `mentions` key keeps no kind.
+- A list keeps only the kinds in the list, for example `mentions: [assigned, comments]`.
+
+The kinds are:
+
+- `review_requested`: a Ping to the requested reviewer of a pull request.
+- `assigned`: a Ping to the assignee of an issue or a pull request. A Forgejo assignment does not ping, because the Forgejo payload does not name the assignee.
+- `comments`: a Ping for each direct `@login` mention in a new comment.
+
+If the Sink does not keep the kind, the Sink still gets the message, but without a Ping. Winnow does not start when the list has an unknown kind. The error names the valid kinds. Winnow also does not start when the `mentions` key has no value.
+
+To make one repository quiet in a channel that other repositories share, define a second Sink with the same webhook URL and a different `mentions` list. Then route that repository to the second Sink:
+
+```yaml
+sinks:
+  dev: { discord: "${WINNOW_DISCORD_DEV}", mentions: true }
+  dev-quiet: { discord: "${WINNOW_DISCORD_DEV}", mentions: [assigned, comments] }
+routes:
+  - match: { repo: autobrr/qui }
+    to: [dev-quiet]
+  - match: {}
+    to: [dev]
+```
+
+Login matching ignores letter case. Repeated mentions and aliases produce one ping per Discord user ID. Winnow does not ping the sender for their own login.
 
 Comment pings apply to new issue comments, comments on pull requests, code review comments, and discussion comments on GitHub and Forgejo. A submitted review summary does not cause comment pings. Edits, deletions, and issue, pull request, or discussion bodies do not cause comment pings.
 

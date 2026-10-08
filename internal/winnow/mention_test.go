@@ -337,3 +337,63 @@ func TestCommentMentionLimits(t *testing.T) {
 		})
 	}
 }
+
+// pingKindsConfig sends every Event to five Sinks with different mentions
+// values.
+const pingKindsConfig = `
+sources:
+  github-autobrr: { secret: test-secret }
+users:
+  octocat: "111"
+sinks:
+  all: { discord: https://discord.example.invalid/api/webhooks/1/token, mentions: true }
+  work: { discord: https://discord.example.invalid/api/webhooks/2/token, mentions: [assigned, comments] }
+  reviews: { discord: https://discord.example.invalid/api/webhooks/3/token, mentions: [review_requested] }
+  empty: { discord: https://discord.example.invalid/api/webhooks/4/token, mentions: [] }
+  nokey: { discord: https://discord.example.invalid/api/webhooks/5/token }
+routes:
+  - match: {}
+    to: [all, work, reviews, empty, nokey]
+`
+
+func TestPingKinds(t *testing.T) {
+	reviewRequested := func(t *testing.T) []byte { return fixture(t, "github/pull_request_review_requested") }
+	assigned := func(t *testing.T) []byte {
+		b := bytes.Replace(reviewRequested(t), []byte(`"review_requested"`), []byte(`"assigned"`), 1)
+		return bytes.Replace(b, []byte(`"requested_reviewer"`), []byte(`"assignee"`), 1)
+	}
+	comment := func(t *testing.T) []byte { return commentPayload(t, "github/issue_comment_created", "Ask @octocat") }
+	tests := []struct {
+		name, event string
+		body        func(*testing.T) []byte
+		pinged      []string // the Sinks that get <@111>
+	}{
+		{"review request", "pull_request", reviewRequested, []string{"all", "reviews"}},
+		{"assignment", "pull_request", assigned, []string{"all", "work"}},
+		{"comment", "issue_comment", comment, []string{"all", "work"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, pingKindsConfig)
+			if got := h.do(signedDelivery("github-autobrr", tt.event, tt.body(t))).Code; got != http.StatusAccepted {
+				t.Fatalf("status = %d, want 202", got)
+			}
+			got := map[string][]byte{}
+			for range 5 {
+				r := h.waitDiscord()
+				got[r.Sink] = r.Body
+			}
+			for _, sink := range []string{"all", "work", "reviews", "empty", "nokey"} {
+				if got[sink] == nil {
+					t.Errorf("sink %s got no message", sink)
+					continue
+				}
+				want := `{"allowed_mentions": {"parse": []}}`
+				if slices.Contains(tt.pinged, sink) {
+					want = `{"content": "<@111>", "allowed_mentions": {"parse": [], "users": ["111"]}}`
+				}
+				assertMentions(t, got[sink], want)
+			}
+		})
+	}
+}

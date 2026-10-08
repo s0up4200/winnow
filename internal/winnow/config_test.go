@@ -1,6 +1,7 @@
 package winnow
 
 import (
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -126,6 +127,12 @@ routes:
 		{"sweep with no token", "sources:\n  s: { secret: x, sweep: { org: autobrr, hook: 1 } }\n", "sources.s.sweep.token is empty"},
 		{"empty database with a sweep", "sources:\n  s: { secret: x, sweep: { token: t, org: autobrr, hook: 1 } }\ndatabase: \"\"\n", "database is empty"},
 		{"alerts sink that is not in sinks", "alerts: b\n", `alerts: sink "b" is not in sinks`},
+		{"unknown kind of Ping", "sinks:\n  a: { discord: x, mentions: [assigned, assign] }\n",
+			`unknown kind of Ping "assign": want review_requested, assigned, or comments`},
+		{"mentions that is a number", "sinks:\n  a: { discord: x, mentions: 1 }\n", "want true, false, or a list of kinds"},
+		{"mentions that is a map", "sinks:\n  a: { discord: x, mentions: { assigned: true } }\n", "want true, false, or a list of kinds"},
+		{"mentions with no value", "sinks:\n  a: { discord: x, mentions: }\n", `sinks.a.mentions: want true, false, or a list of kinds, not ""`},
+		{"mentions: yes", "sinks:\n  a: { discord: x, mentions: yes }\n", "want true, false, or a list of kinds"},
 		{"backfill on a drop route", `
 routes:
   - match: {}
@@ -152,6 +159,26 @@ func TestLoadIncludeOther(t *testing.T) {
 		}
 		if got := bool(cfg.Digests[0].IncludeOther); got != want {
 			t.Errorf("%q: include_other = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestLoadMentions(t *testing.T) {
+	all := []string{"assigned", "comments", "review_requested"}
+	for value, want := range map[string][]string{
+		"":                                 nil,
+		", mentions: false":                nil,
+		", mentions: true":                 all,
+		", mentions: []":                   nil,
+		", mentions: [assigned, assigned]": {"assigned"},
+		", mentions: [comments, assigned, review_requested]": all,
+	} {
+		cfg, errs, _ := Load([]byte("sinks:\n  a: { discord: x" + value + " }\n"))
+		if len(errs) > 0 {
+			t.Fatalf("%q: errors = %v", value, errs)
+		}
+		if got := slices.Sorted(maps.Keys(cfg.Sinks["a"].kinds)); !slices.Equal(got, want) {
+			t.Errorf("%q: mentions = %v, want %v", value, got, want)
 		}
 	}
 }

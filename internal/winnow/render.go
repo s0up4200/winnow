@@ -48,11 +48,11 @@ const maxExcerptBody = 256 << 10
 // render turns an Event into one Discord message. It selects the Renderer by
 // the Event name. An Event name with no Renderer, or a Renderer that returns
 // the zero embed, gets the Fallback message. The Poster of each message is
-// the forge of the Event. The message pings the target of e when users holds
-// the target and the target is not the sender. With no User map, the message
-// never pings. New comments also ping mapped logins in ordinary text.
-// A Fallback message never pings.
-func render(e *Event, users map[string]string) message {
+// the forge of the Event. The message pings the target of e when the User
+// map holds the target and the target is not the sender. New comments also
+// ping mapped logins in ordinary text. Each Ping needs its kind in p. A
+// Fallback message never pings.
+func render(e *Event, p pings) message {
 	var em embed
 	switch e.Name {
 	case "issues":
@@ -101,14 +101,14 @@ func render(e *Event, users map[string]string) message {
 	if e.Forge == "forgejo" {
 		msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
 	}
-	if id, ok := users[strings.ToLower(e.Target)]; ok && ping && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
+	if id, ok := p.users[strings.ToLower(e.Target)]; ok && ping && p.kinds[e.Action] && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
 		msg.Content = "<@" + id + ">"
 		msg.AllowedMentions.Users = []string{id}
 	}
-	if ping && len(users) > 0 {
+	if ping && p.kinds["comments"] && len(p.users) > 0 {
 		switch e.NameAction() {
 		case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
-			for _, id := range commentMentions(e.Body, e.Sender, users) {
+			for _, id := range commentMentions(e.Body, e.Sender, p.users) {
 				mention := "<@" + id + ">"
 				if msg.Content != "" {
 					mention = " " + mention
@@ -122,6 +122,13 @@ func render(e *Event, users map[string]string) message {
 		}
 	}
 	return msg
+}
+
+// pings is the Ping setting of one Sink: the User map and the kinds of Ping
+// that the Sink keeps.
+type pings struct {
+	users map[string]string
+	kinds pingKinds
 }
 
 // fallback returns the embed of the Fallback message: "<event>.<action> on
