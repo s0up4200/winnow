@@ -9,3 +9,4 @@ winnow.env
 *.db
 *.db-shm
 *.db-wal
+dist/
