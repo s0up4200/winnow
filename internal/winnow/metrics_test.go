@@ -189,7 +189,9 @@ func TestMetricsBackfillAndSweepAlertFailures(t *testing.T) {
 	h.step(day(10, 1, 11, 0))
 	h.missed("release", "release_published", day(10, 1, 12, 0), 502)
 	h.missed("star", "star_created", day(10, 1, 12, 1), 0)
-	// The accepted release and the Sweep summary each fail at Discord.
+	h.missed("release", "release_published", day(10, 1, 12, 2), 502)
+	h.gh.fail[3] = http.StatusInternalServerError
+	// The accepted release and the Sweep failure alert each fail at Discord.
 	// The excluded star does not send to the rest Sink.
 	h.script(reply{status: 400}, reply{status: 400})
 	h.step(day(10, 1, 12, 15))

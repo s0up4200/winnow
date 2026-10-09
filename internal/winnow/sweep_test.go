@@ -223,17 +223,14 @@ func TestSweepBackfillRoutes(t *testing.T) {
 
 	got := h.drain()
 	i := slices.IndexFunc(got, func(r discordRequest) bool { return r.Sink == "releases" })
-	if len(got) != 2 || i < 0 {
-		t.Fatalf("requests = %v, want the release and one alert", got)
+	if len(got) != 1 || i < 0 {
+		t.Fatalf("requests = %v, want the release", got)
 	}
 	// A Backfill looks like a live message.
 	live := newHarness(t, sweepConfig)
 	live.receive(day(10, 1, 12, 0), live.github("release", "release_published"))
 	if want := live.waitDiscord().Body; string(got[i].Body) != string(want) {
 		t.Errorf("Backfill message\n%s\nwant the live message\n%s", got[i].Body, want)
-	}
-	if titles := alertTitles(t, got); !slices.Equal(titles, []string{"Sweep of github-autobrr found 2 missed deliveries"}) {
-		t.Errorf("alerts = %q", titles)
 	}
 	// The star matches the Route rest, which does not accept Backfills. It
 	// does not fall through to a later Route.
@@ -365,7 +362,7 @@ func TestSweepDetailFailureKeepsDelivery(t *testing.T) {
 	// The next tick tries again.
 	h.step(day(10, 1, 12, 16))
 	got := h.drain()
-	if titles := alertTitles(t, got); !slices.Equal(titles, []string{"Sweep of github-autobrr failed", "Sweep of github-autobrr works again", "Sweep of github-autobrr found 1 missed delivery"}) {
+	if titles := alertTitles(t, got); !slices.Equal(titles, []string{"Sweep of github-autobrr failed", "Sweep of github-autobrr works again"}) {
 		t.Errorf("alerts = %q", titles)
 	}
 	if !slices.ContainsFunc(got, func(r discordRequest) bool { return r.Sink == "releases" }) {
@@ -380,8 +377,8 @@ func TestSweepPostsOnceAfterRestart(t *testing.T) {
 	h.step(day(10, 1, 12, 15))
 	h.restart(h.config) // the restart sweeps at start
 	h.step(day(10, 1, 12, 30))
-	if got := h.sinks(); !slices.Equal(got, []string{"alerts", "releases"}) {
-		t.Errorf("sinks = %v, want one release and one alert", got)
+	if got := h.sinks(); !slices.Equal(got, []string{"releases"}) {
+		t.Errorf("sinks = %v, want one release", got)
 	}
 	if n := h.gh.count("/deliveries/"); n != 1 {
 		t.Errorf("got %d detail requests, want 1", n)
@@ -424,8 +421,8 @@ func TestSweepFollowsPagesForThreeDays(t *testing.T) {
 	h.missed("release", "release_published", day(10, 4, 2, 0), 502)
 	h.step(day(10, 4, 3, 0))
 	// The Sweep stops at the delivery of 1 October 01:00 on page 2.
-	if got := h.sinks(); !slices.Equal(got, []string{"alerts", "releases", "releases", "releases"}) {
-		t.Errorf("sinks = %v, want 3 releases and one alert", got)
+	if got := h.sinks(); !slices.Equal(got, []string{"releases", "releases", "releases"}) {
+		t.Errorf("sinks = %v, want 3 releases", got)
 	}
 	if n := h.gh.count("/deliveries?"); n != 2 {
 		t.Errorf("got %d list requests, want 2", n)
@@ -507,8 +504,8 @@ func TestSweepCountsBackfillsBeforeAFailure(t *testing.T) {
 	h.missed("release", "release_published", day(10, 1, 12, 1), 502)
 	h.gh.fail[2] = http.StatusInternalServerError
 	h.step(day(10, 1, 12, 15))
-	if titles := alertTitles(t, h.drain()); !slices.Contains(titles, "Sweep of github-autobrr found 1 missed delivery") {
-		t.Errorf("alerts = %q, want the line for the Backfill before the failure", titles)
+	if got := h.linesWith("swept"); len(got) != 1 || got[0]["backfills"] != 1.0 {
+		t.Errorf("swept lines = %v, want one with the Backfill before the failure", got)
 	}
 }
 
