@@ -13,3 +13,5 @@ GitHub does not retry a delivery that fails, and winnow runs on one homelab node
 A GitHub token lives in the cluster. ADR 0007 stays true for the Digest send itself: a Digest counts the stored Events and does not ask the forge API.
 
 If a Sweep stored an Event as a Backfill and its Route did not send it, redeliver the Event from GitHub. Winnow handles the redelivery as a live delivery. The Digests count the Event only once.
+
+Winnow stores a live Event before it claims the delivery for the Sweep. If winnow stops between the two writes, the next Sweep can fetch the delivery again, but the Digests count the Event only once. In the other order, a stop leaves a claim with no stored Event. The Sweeps then skip the delivery, and the Digests count one Event too few.
