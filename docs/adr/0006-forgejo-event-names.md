@@ -1,6 +1,6 @@
 # A Forgejo Event name comes from `X-Forgejo-Event`
 
-Forgejo sends two event headers. `X-Forgejo-Event` holds a coarse name, for example `pull_request`, `issues`, `issue_comment`, `push`, or `release`. `X-Forgejo-Event-Type` holds a fine name, for example `pull_request_sync`, `pull_request_assign`, `issue_assign`, or `pull_request_comment`. Winnow takes the Event name from `X-Forgejo-Event`. This decision replaces the Forge parsing rule of the spec (issue #14), which took the name from `X-Forgejo-Event-Type`.
+Forgejo sends two event headers. `X-Forgejo-Event` holds a coarse name, for example `pull_request`, `issues`, `issue_comment`, `push`, or `release`. `X-Forgejo-Event-Type` holds a fine name, for example `pull_request_sync`, `pull_request_assign`, `issue_assign`, or `pull_request_comment`. Winnow takes the Event name from `X-Forgejo-Event`. This decision replaces the earlier Forge parsing rule, which took the name from `X-Forgejo-Event-Type`.
 
 No Rule with a GitHub Event name matches a fine name. A Rule with `event: pull_request` then does not match a Forgejo pull request sync, and nothing tells the operator. The coarse names are the GitHub names, so one Rule matches on both forges.
 

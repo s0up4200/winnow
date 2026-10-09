@@ -6,13 +6,12 @@ Winnow has one binary, one container, and one YAML configuration file. [GLOSSARY
 
 ## Run winnow
 
-The image is `ghcr.io/s0up4200/winnow`. It is private and for linux/amd64 only. A GitHub Actions workflow builds and pushes it for each tag that starts with `v`. Each push also moves the `latest` tag.
+The image is `ghcr.io/s0up4200/winnow`. It supports linux/amd64. A GitHub Actions workflow builds and pushes it for each tag that starts with `v`. Each push also moves the `latest` tag.
 
-1. Run `docker login ghcr.io` with a token that can read packages.
-2. Make a `config` directory. Copy [winnow.example.yaml](winnow.example.yaml) to `config/winnow.yaml` and change it for your forges and channels.
-3. Put the secrets and the Discord webhook URLs in a `winnow.env` file next to the Compose file, one `NAME=value` on each line.
-4. If you use Digests or a Sweep, make the `config` directory writable for the user `65532` of the container: `sudo chown 65532 config`. Winnow keeps its store in this directory.
-5. Start winnow with Docker Compose:
+1. Make a `config` directory. Copy [winnow.example.yaml](winnow.example.yaml) to `config/winnow.yaml` and change it for your forges and channels.
+2. Put the secrets and the Discord webhook URLs in a `winnow.env` file next to the Compose file, one `NAME=value` on each line.
+3. If you use Digests or a Sweep, make the `config` directory writable for the user `65532` of the container: `sudo chown 65532 config`. Winnow keeps its store in this directory.
+4. Start winnow with Docker Compose:
 
 ```yaml
 services:
@@ -328,3 +327,7 @@ Winnow logs `matched` at INFO when a Route selects Sinks for an Event. This line
 Each Route decision line names the outcome (`matched`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. The line of a Backfill has `"backfill": true`. Winnow writes one ERROR line for each message that it cannot send to Discord. If winnow cannot write an Event to the store, it writes a `store write failed` line and sends the Event to its Routes as usual. To send a delivery again, find its delivery ID in the forge.
 
 The logs are JSON when the output is not a terminal. In a terminal, they are colored text.
+
+## License
+
+Winnow is licensed under the GNU General Public License, version 2 or any later version. See [LICENSE](LICENSE).

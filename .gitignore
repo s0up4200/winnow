@@ -1,0 +1,11 @@
+/winnow
+.env
+.env.*
+!.env.example
+!.env.sample
+winnow.env
+/winnow.yaml
+/config/
+*.db
+*.db-shm
+*.db-wal

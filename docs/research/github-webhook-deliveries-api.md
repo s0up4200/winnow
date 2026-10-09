@@ -1,6 +1,6 @@
 # GitHub organization webhook deliveries API
 
-This is research for issue #48 (the Sweep). The research date is 2026-10-07. The sources are the GitHub docs and the OpenAPI description in `github/rest-api-description` (branch `main`). The schemas for these endpoints are the same in API versions `2022-11-28` and `2026-03-10`.
+This is research for the Sweep. The research date is 2026-10-07. The sources are the GitHub docs and the OpenAPI description in `github/rest-api-description` (branch `main`). The schemas for these endpoints are the same in API versions `2022-11-28` and `2026-03-10`.
 
 These sources occur often:
 
@@ -10,7 +10,7 @@ These sources occur often:
 
 "UNCONFIRMED" marks a claim that no primary source states.
 
-## Summary for #48
+## Summary for the Sweep
 
 - The list endpoint is `GET /orgs/{org}/hooks/{hook_id}/deliveries`. The detail endpoint is `GET /orgs/{org}/hooks/{hook_id}/deliveries/{delivery_id}`. [rest]
 - A list entry has no headers and no payload. The Sweep must call the detail endpoint for each failed delivery. [oas]
