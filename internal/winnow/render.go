@@ -58,15 +58,11 @@ const maxPingUsers = 100
 // 256 KiB.
 const maxExcerptBody = 256 << 10
 
-// render turns an Event into one Discord message. It selects the Renderer by
-// the Event name. An Event name with no Renderer, or a Renderer that returns
-// the zero card, gets the Fallback message. The Poster of each message is
-// the forge of the Event. The message pings the target of e when the User
-// map holds the target and the target is not the sender. New comments also
-// ping mapped logins in ordinary text. Each Ping needs its kind in p. A
-// Fallback message never pings. A release shows the Icon in icons.
-func render(e *Event, p pings, icons map[string]string) message {
-	var c card
+// draft returns the card of e, which is the same for each Sink. It selects
+// the Renderer by the Event name. An Event name with no Renderer, or a
+// Renderer that returns the zero card, gets the Fallback message, and ping
+// is false. A release shows the Icon in icons.
+func draft(e *Event, icons map[string]string) (c card, ping bool) {
 	switch e.Name {
 	case "issues":
 		c = renderIssue(e)
@@ -105,12 +101,20 @@ func render(e *Event, p pings, icons map[string]string) message {
 	case "repository_advisory":
 		c = renderAlert(e, "Repository advisory")
 	}
-	ping := c.title != ""
-	if ping {
-		c.buttons = buttons(e)
-	} else {
-		c = fallback(e)
+	if c.title == "" {
+		return fallback(e), false
 	}
+	c.buttons = buttons(e)
+	return c, true
+}
+
+// render turns the card c of e from draft into one Discord message for one
+// Sink. The Poster of each message is the forge of the Event. The message
+// pings the target of e when the User map holds the target and the target
+// is not the sender. New comments also ping the mapped logins that mentioned
+// returns. Each Ping needs its kind in p. A Fallback message, where ping is
+// false, never pings.
+func render(e *Event, c card, ping bool, p pings, mentioned func() []string) message {
 	msg := message{Username: "GitHub", AvatarURL: githubIcon}
 	if e.Forge == "forgejo" {
 		msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
@@ -123,7 +127,7 @@ func render(e *Event, p pings, icons map[string]string) message {
 	if ping && p.kinds["comments"] && len(p.users) > 0 {
 		switch e.NameAction() {
 		case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
-			for _, id := range commentMentions(e.Body, e.Sender, p.users) {
+			for _, id := range mentioned() {
 				mention := "<@" + id + ">"
 				if mentions != "" {
 					mention = " " + mention
@@ -730,7 +734,17 @@ func cutWords(s string, n int) string {
 	if utf8.RuneCountInString(s) <= n {
 		return s
 	}
-	links := mdLink.FindAllStringIndex(s, -1)
+	// A cut is in the first n characters, and a link is on one line, so only
+	// a link up to the end of that line can hold the cut. A long body then
+	// costs no full search for each Sink.
+	end := 0
+	for range n {
+		_, size := utf8.DecodeRuneInString(s[end:])
+		end += size
+	}
+	line, _, _ := strings.Cut(s[end:], "\n")
+	end += len(line)
+	links := mdLink.FindAllStringIndex(s[:end], -1)
 	for m := n; ; {
 		c := strings.TrimSuffix(cutAtWord(s, m), "…")
 		for _, l := range links {
