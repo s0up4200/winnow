@@ -224,6 +224,11 @@ var (
 	// fenceOpen matches the line that opens a fenced code block: three or
 	// more backticks or tildes, indented by at most three spaces.
 	fenceOpen = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})")
+	// taskBox matches a list item that starts with a task box, for example
+	// "- [ ] " or "1. [x] ". Discord shows no task lists.
+	taskBox = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+]|[0-9]{1,9}[.)])[ \t]+\[[ xX]\][ \t]`)
+	// boxes changes the box in a taskBox match to ☐ or ☑.
+	boxes = strings.NewReplacer("[ ]", "☐", "[x]", "☑", "[X]", "☑")
 	// mdLink matches a markdown link. cutWords does not cut in one.
 	mdLink = regexp.MustCompile(mdLinkPattern)
 	// references matches a Reference, a full commit hash or #n. It also
@@ -239,7 +244,8 @@ var (
 
 // clean removes the parts of a body that Discord cannot show: comments,
 // images, and HTML tags. It keeps the text in the tags and the markdown that
-// Discord shows, changes tables to lists, and collapses repeated blank lines.
+// Discord shows, changes tables to lists and task boxes to ☐ and ☑, and
+// collapses repeated blank lines.
 // It changes each Reference to a link into repo, and adds no link when repo
 // is empty. It does not change the text in a fenced code block or in inline
 // code. A block that does not close continues to the end of the body, as on
@@ -303,6 +309,7 @@ func cleanProse(text string) string {
 		return ""
 	})
 	text = tables(text)
+	text = taskBox.ReplaceAllStringFunc(text, boxes.Replace)
 	return blanks.ReplaceAllString(text, "\n\n")
 }
 
