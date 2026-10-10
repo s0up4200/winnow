@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // The Sweep constants. GitHub keeps deliveries for 3 days, so a Sweep looks
@@ -242,6 +243,10 @@ func (s *Server) alert(title, desc string) {
 	if s.cfg.Alerts == "" {
 		return
 	}
-	msg := message{Username: "GitHub", AvatarURL: githubIcon, Embeds: []embed{{Title: title, Description: cut(desc, maxDescription), Color: colorStar}}}
+	in := []component{display("## " + title)}
+	if desc != "" {
+		in = append(in, display(cut(desc, maxText-utf8.RuneCountInString(in[0].Content))))
+	}
+	msg := message{Username: "GitHub", AvatarURL: githubIcon, Components: []component{box(colorStar, in...)}}
 	s.outbox.send(s.cfg.Alerts, msg, entry{attrs: []any{"alert", title}})
 }

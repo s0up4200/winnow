@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"slices"
@@ -25,6 +26,9 @@ type Config struct {
 	Bots    []string              `yaml:"bots"` // logins of Bot senders, compared without case
 	Digests []Digest              `yaml:"digests"`
 	Alerts  string                `yaml:"alerts"` // the name of the Sink that gets the Sweep alerts, or empty
+	// Icons maps a repository (owner/name) or an owner to the image URL of
+	// its Icon. Load makes the keys lowercase.
+	Icons map[string]string `yaml:"icons"`
 	// Database is the path of the store. A relative path is relative to the
 	// directory of the configuration file. Winnow opens it only when Digests
 	// is not empty or a Source has a Sweep.
@@ -172,6 +176,15 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		users[strings.ToLower(login)] = id
 	}
 	cfg.Users = users
+	icons := make(map[string]string, len(cfg.Icons))
+	for _, key := range slices.Sorted(maps.Keys(cfg.Icons)) {
+		v := cfg.Icons[key]
+		if u, err := url.Parse(v); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			errs = append(errs, fmt.Errorf("icons.%s: want an http or https URL, not %q", key, v))
+		}
+		icons[strings.ToLower(key)] = v
+	}
+	cfg.Icons = icons
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sinks)) {
 		s := cfg.Sinks[name]
 		required("sinks."+name+".discord", &s.Discord)

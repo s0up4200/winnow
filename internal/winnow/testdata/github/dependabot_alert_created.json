@@ -22,6 +22,7 @@
       }
     },
     "security_advisory": {
+      "ghsa_id": "GHSA-c2qf-rxjj-qqgw",
       "summary": "semver vulnerable to Regular Expression Denial of Service",
       "severity": "medium"
     },

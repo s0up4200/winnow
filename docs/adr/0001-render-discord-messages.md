@@ -1,6 +1,6 @@
 # Winnow renders Discord messages instead of forwarding to /github
 
-Discord has a `/github` endpoint. It accepts GitHub webhook payloads and makes its own messages. Winnow does not use it. Winnow makes an embed for each routed Event.
+Discord has a `/github` endpoint. It accepts GitHub webhook payloads and makes its own messages. Winnow does not use it. Winnow makes its own message for each routed Event. (The first version made an embed. Superseded by [0010](0010-render-components-v2-messages.md): winnow now sends Components V2 messages.)
 
 The `/github` endpoint renders only 18 GitHub events. It drops all security events with HTTP 204 and makes no message, so a 204 does not prove that a message exists. Forgejo has no such endpoint. Winnow needs Renderers for Forgejo and for security events. One parser reads both forges, so these Renderers also cover the GitHub events.
 

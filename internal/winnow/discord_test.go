@@ -252,3 +252,12 @@ func TestEventAfterShutdownIsLogged(t *testing.T) {
 	}
 	h.assertMetrics("qui", "shutdown", 1, "github-autobrr", "401", 0)
 }
+
+// The sender adds with_components=true to the Sink URL and keeps the query
+// that the URL has.
+func TestSinkURLKeepsQuery(t *testing.T) {
+	got := newDiscordSender(SinkConfig{Discord: "https://discord.example.invalid/api/webhooks/1/token?thread_id=7"}).url
+	if want := "https://discord.example.invalid/api/webhooks/1/token?thread_id=7&with_components=true"; got != want {
+		t.Errorf("url = %q, want %q", got, want)
+	}
+}
