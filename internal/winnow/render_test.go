@@ -212,7 +212,7 @@ func TestRendererCleansBody(t *testing.T) {
 	body := "<!-- Fill in the template. -->\r\n## Summary\r\n\r\n\r\n\r\nFixes the [crash](https://example.invalid/1).\n" +
 		"[![CI](https://example.invalid/ci.svg)](https://example.invalid/ci)\n![screenshot](https://example.invalid/a.png)<img src=\"https://example.invalid/b.png\" width=\"200\">\n\n  \n\n" +
 		"<details>\n<summary>Logs</summary>\n\npanic: nil map in `Vec<String>`<br/>\n</details>\n\n- [x] Tests\n- [ ] Docs\n<!--\nmore\n-->"
-	want := "## Summary\n\nFixes the [crash](https://example.invalid/1).\n\nLogs\n\npanic: nil map in `Vec<String>`\n\n- [x] Tests\n- [ ] Docs"
+	want := "## Summary\n\nFixes the [crash](https://example.invalid/1).\n\nLogs\n\npanic: nil map in `Vec<String>`\n\n- ☑ Tests\n- ☐ Docs"
 	if got := issueDescription(t, body); got != want {
 		t.Errorf("description = %q, want %q", got, want)
 	}
@@ -223,6 +223,14 @@ func TestRendererListsTable(t *testing.T) {
 		"| ghcr.io/s0up4200/example-app | patch | `v0.1.1` → `v0.1.2` |\n| [hass](https://example.invalid/hass) | minor | `2026.9.3` → `2026.10.0` |\n\n---\n\nName | Size\n:-- | --:\na | 1\n\n| not a table |"
 	want := "This PR contains the following updates:\n\n**Package · Update · Change**\n" +
 		"- ghcr.io/s0up4200/example-app · patch · `v0.1.1` → `v0.1.2`\n- [hass](https://example.invalid/hass) · minor · `2026.9.3` → `2026.10.0`\n\n---\n\n**Name · Size**\n- a · 1\n\n| not a table |"
+	if got := issueDescription(t, body); got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
+func TestRendererShowsTaskBoxes(t *testing.T) {
+	body := "- [x] Tests\n* [X] Lint\n  - [ ] Docs\n1. [ ] Notes\n- [ ]\n[ ] not an item\n- [y] not a box\n```\n- [ ] in code\n```"
+	want := "- ☑ Tests\n* ☑ Lint\n  - ☐ Docs\n1. ☐ Notes\n- [ ]\n[ ] not an item\n- [y] not a box\n```\n- [ ] in code\n```"
 	if got := issueDescription(t, body); got != want {
 		t.Errorf("description = %q, want %q", got, want)
 	}
