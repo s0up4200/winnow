@@ -255,7 +255,7 @@ func TestSweepBackfillCountsInItsPeriod(t *testing.T) {
 			digests = append(digests, allText(decodeMessage(t, r.Body)))
 		}
 	}
-	if len(digests) != 1 || !strings.HasPrefix(digests[0], "-# Codertocat · Wednesday 1 October\n") || !strings.Contains(digests[0], "**1** ★\n") {
+	if len(digests) != 1 || !strings.HasPrefix(digests[0], "-# Codertocat · Wednesday 1 October\n") || !strings.Contains(digests[0], "**1** star\n") {
 		t.Errorf("digests = %+v, want one for 1 October with one star", digests)
 	}
 }
@@ -332,7 +332,7 @@ func TestRedeliveryAfterBackfillRoutes(t *testing.T) {
 	if rest != 1 {
 		t.Errorf("got %d messages to rest, want 1", rest)
 	}
-	if len(digests) != 1 || !strings.Contains(digests[0], "**1** ★\n") {
+	if len(digests) != 1 || !strings.Contains(digests[0], "**1** star\n") {
 		t.Errorf("digests = %+v, want one with one star", digests)
 	}
 }

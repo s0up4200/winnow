@@ -126,9 +126,9 @@ func (h *harness) otherOnly() *http.Request {
 }
 
 func TestDigestCountsEachMetric(t *testing.T) {
-	const named = "**2** PRs merged · **1** opened · **1** closed\n**2** issues opened · **1** closed · **2** releases · **1** ★ · **1** fork · **1** discussion"
+	const named = "**2** PRs merged · **1** opened · **1** closed\n**2** issues opened · **1** closed · **2** releases · **1** star · **1** fork · **1** discussion"
 	repos := []string{
-		"### [Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  ·  [0.0.1](https://example.invalid/Codertocat/Hello-World/releases/tag/0.0.1)  ·  [Pulse](https://example.invalid/Codertocat/Hello-World/pulse)\n**1** PR opened · **1** issue opened · **1** closed · **1** ★",
+		"### [Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  ·  [0.0.1](https://example.invalid/Codertocat/Hello-World/releases/tag/0.0.1)  ·  [Pulse](https://example.invalid/Codertocat/Hello-World/pulse)\n**1** PR opened · **1** issue opened · **1** closed · **1** star",
 		// Forgejo has no Pulse page.
 		"### [soup/winnow-test](https://example.invalid/soup/winnow-test)  ·  [v1.0.0](https://example.invalid/soup/winnow-test/releases/tag/v1.0.0)\n**1** merged · **1** issue opened",
 		"### [autobrr/qui](https://github.example.invalid/autobrr/qui)  ·  [Pulse](https://github.example.invalid/autobrr/qui/pulse)\n**1** merged",
@@ -208,11 +208,11 @@ func TestDigestPeriodEdges(t *testing.T) {
 		t.Fatalf("got %d messages before the send time, want 0", len(got))
 	}
 	h.step(day(9, 29, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** ★") || strings.Contains(got.Description, "fork") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** star") || strings.Contains(got.Description, "fork") {
 		t.Errorf("week 39 = %q, want only the star", got.Description)
 	}
 	h.step(day(10, 6, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** fork") || strings.Contains(got.Description, "★") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** fork") || strings.Contains(got.Description, "star") {
 		t.Errorf("week 40 = %q, want only the fork", got.Description)
 	}
 }
@@ -228,8 +228,8 @@ func TestDigestTitles(t *testing.T) {
 	// it in each Period kind. The repositories of the two Events have two
 	// owners, so the line over the heading names no owner.
 	for _, tt := range []struct{ includeOther, owner, description, footer string }{
-		{"", "Codertocat · ", "**1** ★\n" + helloLine("Hello-World") + "\n**1** ★", "1 repository"},
-		{"true", "", "**1** ★\nOther: **1** label.created\n" + helloLine("Codertocat/Hello-World") + "\n**1** ★\n" +
+		{"", "Codertocat · ", "**1** star\n" + helloLine("Hello-World") + "\n**1** star", "1 repository"},
+		{"true", "", "**1** star\nOther: **1** label.created\n" + helloLine("Codertocat/Hello-World") + "\n**1** star\n" +
 			"### [autobrr/qui](https://github.example.invalid/autobrr/qui)  ·  [Pulse](https://github.example.invalid/autobrr/qui/pulse)", "2 repositories"},
 	} {
 		t.Run("include_other="+tt.includeOther, func(t *testing.T) {
@@ -423,7 +423,7 @@ func TestDigestCountsDroppedEvent(t *testing.T) {
 		t.Fatalf("outcome = %v, want dropped", got)
 	}
 	h.step(day(10, 6, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** ★") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** star") {
 		t.Errorf("description = %q, want 1 star", got.Description)
 	}
 }
@@ -475,7 +475,7 @@ func TestDigestCountsRedeliveryOnce(t *testing.T) {
 		h.do(h.github("star", "star_created")) // the same delivery ID
 	}
 	h.step(day(10, 6, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** ★") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** star") {
 		t.Errorf("description = %q, want 1 star", got.Description)
 	}
 }
@@ -590,8 +590,8 @@ func TestDigestAddedLaterGetsOwnFirstRun(t *testing.T) {
 	}
 	// The later Digest counts only the star after its first run.
 	want := map[string]string{
-		"1 repository": "**2** ★",
-		"1 repository · from Wednesday 1 October": "**1** ★\n",
+		"1 repository": "**2** stars",
+		"1 repository · from Wednesday 1 October": "**1** star\n",
 	}
 	for _, e := range got {
 		if w, ok := want[e.Footer]; !ok || !strings.Contains(e.Description, w) {
@@ -626,7 +626,7 @@ func TestDigestWiderMatchCountsOnlyNewEvents(t *testing.T) {
 		first, _, _ := strings.Cut(e.Description, "\n")
 		stars[first] = true
 	}
-	if !stars["**1** ★"] || !stars["**2** ★"] {
+	if !stars["**1** star"] || !stars["**2** stars"] {
 		t.Errorf("first lines = %v, want one with 1 star and one with 2", stars)
 	}
 }
@@ -647,7 +647,7 @@ func TestDigestChangedEveryIsNewDigest(t *testing.T) {
 	h.step(day(10, 13, 9, 0))
 	got := h.oneDigest()
 	// The weekly Digest counts from its first run, not the star of Monday.
-	if !strings.HasPrefix(got.Description, "**1** ★\n") || got.Footer != "1 repository · from Wednesday 8 October" {
+	if !strings.HasPrefix(got.Description, "**1** star\n") || got.Footer != "1 repository · from Wednesday 8 October" {
 		t.Errorf("description %q, footer %q", got.Description, got.Footer)
 	}
 }

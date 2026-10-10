@@ -204,7 +204,7 @@ func summarize(d *Digest, p period, from time.Time, events []Event, icons map[st
 	}
 	line("", tally("PR", []int{total.merged, total.prOpened, total.prClosed}, "merged", "opened", "closed")...)
 	line("", append(tally("issue", []int{total.issOpened, total.issClosed}, "opened", "closed"),
-		plural(total.releases, "release"), count(total.stars, "★"), plural(total.forks, "fork"), plural(total.discussions, "discussion"))...)
+		plural(total.releases, "release"), plural(total.stars, "star"), plural(total.forks, "fork"), plural(total.discussions, "discussion"))...)
 	other := slices.SortedFunc(maps.Keys(total.other), func(a, b string) int {
 		return cmp.Or(total.other[b]-total.other[a], strings.Compare(a, b))
 	})
@@ -251,7 +251,7 @@ func summarize(d *Digest, p period, from time.Time, events []Event, icons map[st
 		}
 		parts := append([]string{count(r.merged, "merged"), did(r.prOpened, "PR", "opened")},
 			tally("issue", []int{r.issOpened, r.issClosed}, "opened", "closed")...)
-		parts = slices.DeleteFunc(append(parts, count(r.stars, "★")), func(s string) bool { return s == "" })
+		parts = slices.DeleteFunc(append(parts, plural(r.stars, "star")), func(s string) bool { return s == "" })
 		top = append(top, strings.TrimSpace(heading+"\n"+strings.Join(parts, " · ")))
 	}
 
