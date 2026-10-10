@@ -654,10 +654,8 @@ func renderPush(e *Event) card {
 		if budget <= 0 {
 			break
 		}
-		msg, _, _ := strings.Cut(cm.Message, "\n")
-		if len(msg) > budget {
-			msg = strings.ToValidUTF8(msg[:budget], "")
-		}
+		// ToValidUTF8 drops a character that the cut splits.
+		msg, _, _ := strings.Cut(strings.ToValidUTF8(cm.Message[:min(len(cm.Message), budget)], ""), "\n")
 		budget -= len(msg)
 		line := fmt.Sprintf("[`%s`](%s) %s", cm.ID[:min(7, len(cm.ID))], cm.URL, linkReferences(msg, e.RepoURL))
 		if !strings.EqualFold(cm.Author, e.Sender) {
