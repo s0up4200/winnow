@@ -111,10 +111,10 @@ func draft(e *Event, icons map[string]string) (c card, ping bool) {
 // render turns the card c of e from draft into one Discord message for one
 // Sink. The Poster of each message is the forge of the Event. The message
 // pings the target of e when the User map holds the target and the target
-// is not the sender. New comments also ping mapped logins in ordinary text.
-// Each Ping needs its kind in p. A Fallback message, where ping is false,
-// never pings.
-func render(e *Event, c card, ping bool, p pings) message {
+// is not the sender. New comments also ping the mapped logins that mentioned
+// returns. Each Ping needs its kind in p. A Fallback message, where ping is
+// false, never pings.
+func render(e *Event, c card, ping bool, p pings, mentioned func() []string) message {
 	msg := message{Username: "GitHub", AvatarURL: githubIcon}
 	if e.Forge == "forgejo" {
 		msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
@@ -127,7 +127,7 @@ func render(e *Event, c card, ping bool, p pings) message {
 	if ping && p.kinds["comments"] && len(p.users) > 0 {
 		switch e.NameAction() {
 		case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
-			for _, id := range commentMentions(e.Body, e.Sender, p.users) {
+			for _, id := range mentioned() {
 				mention := "<@" + id + ">"
 				if mentions != "" {
 					mention = " " + mention

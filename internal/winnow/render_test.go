@@ -524,16 +524,17 @@ func TestPushWorkStopsGrowing(t *testing.T) {
 }
 
 // BenchmarkDeliverLargeBody measures deliver for a new comment with a body
-// of 256 KiB on a Route with three Sinks. The webhook handler waits for this
-// work.
+// of 256 KiB on a Route with three Sinks that keep comment Pings. The webhook
+// handler waits for this work.
 func BenchmarkDeliverLargeBody(b *testing.B) {
 	body := strings.Repeat("Some text with <b>tags</b>, `code`, and #12.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", 256<<10/80)
 	e := &Event{Forge: "github", Name: "issue_comment", Action: "created", Repo: "autobrr/qui", Sender: "octocat",
 		RepoURL: "https://example.invalid/autobrr/qui", URL: "https://example.invalid/autobrr/qui/issues/1", Number: 1, Title: "t", Body: body}
-	o := &outbox{sinks: map[string]*sink{}, drain: make(chan struct{})}
+	users := map[string]string{"alice": "1"}
+	o := &outbox{sinks: map[string]*sink{}, users: users, drain: make(chan struct{})}
 	route := &Route{Name: "all"}
 	for _, name := range []string{"a", "b", "c"} {
-		o.sinks[name] = &sink{name: name, queue: make(chan entry, 1)}
+		o.sinks[name] = &sink{name: name, pings: pings{users: users, kinds: map[string]bool{"comments": true}}, queue: make(chan entry, 1)}
 		route.To = append(route.To, name)
 	}
 	for b.Loop() {
