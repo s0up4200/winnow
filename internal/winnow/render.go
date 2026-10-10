@@ -646,8 +646,19 @@ func renderPush(e *Event) card {
 		c.title += "s"
 	}
 	lines := make([]string, 0, len(p.Commits))
+	// Only maxText characters reach Discord, and a character has at most 4
+	// bytes. budget stops the messages there, before linkReferences makes
+	// them longer.
+	budget := 4 * maxText
 	for _, cm := range p.Commits {
+		if budget <= 0 {
+			break
+		}
 		msg, _, _ := strings.Cut(cm.Message, "\n")
+		if len(msg) > budget {
+			msg = strings.ToValidUTF8(msg[:budget], "")
+		}
+		budget -= len(msg)
 		line := fmt.Sprintf("[`%s`](%s) %s", cm.ID[:min(7, len(cm.ID))], cm.URL, linkReferences(msg, e.RepoURL))
 		if !strings.EqualFold(cm.Author, e.Sender) {
 			line += " - " + cm.Author

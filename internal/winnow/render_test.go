@@ -498,3 +498,18 @@ func TestExcerptWorkStopsGrowing(t *testing.T) {
 		t.Errorf("excerpt made %.0f allocations for a 3 MiB body and %.0f for a 768 KiB body, want about the same", large, small)
 	}
 }
+
+// The work for a push does not grow with the commit messages after a limit,
+// because only 4000 characters reach Discord.
+func TestPushWorkStopsGrowing(t *testing.T) {
+	allocs := func(n int) float64 {
+		e := &Event{Name: "push", Ref: new("refs/heads/main"), RepoURL: repoURL, Push: Push{Size: 2, Commits: []Commit{
+			{ID: "0123456789abcdef", Message: strings.Repeat("#1 ", n)},
+			{ID: "0123456789abcdef", Message: strings.Repeat("#1 ", n)},
+		}}}
+		return testing.AllocsPerRun(1, func() { renderPush(e) })
+	}
+	if small, large := allocs(1<<18), allocs(1<<20); large > small*1.1 {
+		t.Errorf("renderPush made %.0f allocations for 3 MiB messages and %.0f for 768 KiB messages, want about the same", large, small)
+	}
+}
