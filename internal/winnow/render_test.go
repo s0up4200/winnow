@@ -370,6 +370,15 @@ func TestRendererClosesCutCodeBlock(t *testing.T) {
 	}
 }
 
+// A cut in a link that ends after the cut, on the same line, moves back to
+// before the link.
+func TestCutWordsBeforeLink(t *testing.T) {
+	s := "see [the docs](https://example.invalid/a/long/path) now\nmore text"
+	if got, want := cutWords(s, 20), "see…"; got != want {
+		t.Errorf("cutWords(%q, 20) = %q, want %q", s, got, want)
+	}
+}
+
 // A cut next to a fence keeps the limit and adds no fence that opens a block.
 func TestCutWordsAtFence(t *testing.T) {
 	for _, tt := range []struct {
@@ -511,5 +520,26 @@ func TestPushWorkStopsGrowing(t *testing.T) {
 	}
 	if small, large := allocs(1<<18), allocs(1<<20); large > small*1.1 {
 		t.Errorf("renderPush made %.0f allocations for 3 MiB messages and %.0f for 768 KiB messages, want about the same", large, small)
+	}
+}
+
+// BenchmarkDeliverLargeBody measures deliver for a new comment with a body
+// of 256 KiB on a Route with three Sinks. The webhook handler waits for this
+// work.
+func BenchmarkDeliverLargeBody(b *testing.B) {
+	body := strings.Repeat("Some text with <b>tags</b>, `code`, and #12.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", 256<<10/80)
+	e := &Event{Forge: "github", Name: "issue_comment", Action: "created", Repo: "autobrr/qui", Sender: "octocat",
+		RepoURL: "https://example.invalid/autobrr/qui", URL: "https://example.invalid/autobrr/qui/issues/1", Number: 1, Title: "t", Body: body}
+	o := &outbox{sinks: map[string]*sink{}, drain: make(chan struct{})}
+	route := &Route{Name: "all"}
+	for _, name := range []string{"a", "b", "c"} {
+		o.sinks[name] = &sink{name: name, queue: make(chan entry, 1)}
+		route.To = append(route.To, name)
+	}
+	for b.Loop() {
+		o.deliver(e, route)
+		for _, sk := range o.sinks {
+			<-sk.queue
+		}
 	}
 }

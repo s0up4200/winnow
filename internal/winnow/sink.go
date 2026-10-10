@@ -74,18 +74,20 @@ func newOutbox(cfg *Config, log *slog.Logger, failures *prometheus.CounterVec) *
 }
 
 // deliver renders e for each Sink of route and puts the message on the queue
-// of the Sink. The message pings only for the kinds of Ping that the Sink
-// keeps. When the drain started or a queue is full, deliver writes a failed
+// of the Sink. It makes the card of e once, because cleaning a large body is
+// slow. The message pings only for the kinds of Ping that the Sink keeps.
+// When the drain started or a queue is full, deliver writes a failed
 // delivery line for that Sink.
 func (o *outbox) deliver(e *Event, route *Route) {
 	attrs := e.logAttrs()
+	c, ping := draft(e, o.icons)
 	// Under the read lock, the drain cannot start between the check and the
 	// enqueue, so a worker that stopped never misses a message.
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	for _, to := range route.To {
 		sk := o.sinks[to]
-		o.enqueue(sk, entry{route: route.Name, attrs: attrs}, func() message { return render(e, sk.pings, o.icons) })
+		o.enqueue(sk, entry{route: route.Name, attrs: attrs}, func() message { return render(e, c, ping, sk.pings) })
 	}
 }
 
