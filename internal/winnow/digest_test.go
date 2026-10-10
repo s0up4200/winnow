@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,25 +62,45 @@ func (h *harness) github(event, name string) *http.Request {
 	return signedDelivery("github-autobrr", event, fixture(h.t, "github/"+name))
 }
 
+// sentDigest is a Digest message in the parts that the tests read.
+type sentDigest struct {
+	Title       string // the line over the heading, a newline, and the heading
+	Description string // the Text Displays between the heading and the footer
+	Footer      string // the footer line, without "-# "
+	Thumb       string // the thumbnail, or ""
+}
+
 // digests stops the server, so that the queues are empty, and returns the
-// embeds of the Digest messages that the fake Discord got. Then it starts
-// the server again on the same store.
-func (h *harness) digests() []embed {
+// Digest messages that the fake Discord got. Then it starts the server
+// again on the same store.
+func (h *harness) digests() []sentDigest {
 	h.t.Helper()
 	h.restart(h.config)
-	var got []embed
+	var got []sentDigest
 	for len(h.discord) > 0 {
-		var m message
-		if err := json.Unmarshal((<-h.discord).Body, &m); err != nil {
-			h.t.Fatal(err)
+		m := decodeMessage(h.t, (<-h.discord).Body)
+		texts := displays(m.Components)
+		last := texts[len(texts)-1]
+		also, footer, ok := strings.CutLast(last, "\n")
+		if !ok {
+			also, footer = "", last
 		}
-		got = append(got, m.Embeds...)
+		texts[len(texts)-1] = also
+		d := sentDigest{
+			Title:       texts[0] + "\n" + texts[1],
+			Description: strings.TrimSpace(strings.Join(texts[2:], "\n")),
+			Footer:      strings.TrimPrefix(footer, "-# "),
+		}
+		if head := m.Components[0].Components[0]; head.Accessory != nil {
+			d.Thumb = head.Accessory.Media.URL
+		}
+		got = append(got, d)
 	}
 	return got
 }
 
 // oneDigest returns the one Digest message that the fake Discord got.
-func (h *harness) oneDigest() embed {
+func (h *harness) oneDigest() sentDigest {
 	h.t.Helper()
 	got := h.digests()
 	if len(got) != 1 {
@@ -105,21 +126,44 @@ func (h *harness) otherOnly() *http.Request {
 }
 
 func TestDigestCountsEachMetric(t *testing.T) {
-	const named = "**Pull requests**  2 merged, 1 opened, 1 closed\\n**Issues**  2 opened, 1 closed\\n**Releases**  2\\n**Stars**  1 · **Forks**  1 · **Discussions**  1"
-	const repos = "[Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  1 issue · 1 star · 0.0.1\\n[soup/winnow-test](https://example.invalid/soup/winnow-test)  1 merged · 1 issue · v1.0.0\\n[autobrr/qui](https://github.example.invalid/autobrr/qui)  1 merged"
-	tests := []struct{ includeOther, description, footer string }{
-		{"", named + "\\n\\n" + repos, "3 repositories"},
-		{"false", named + "\\n\\n" + repos, "3 repositories"},
-		{"true", named + "\\n**Other**  2 label.created\\n\\n" + repos + "\\n[autobrr/other-only](https://github.example.invalid/autobrr/other-only)", "4 repositories"},
+	const named = "**2** PRs merged · **1** opened · **1** closed\n**2** issues opened · **1** closed · **2** releases · **1** ★ · **1** fork · **1** discussion"
+	repos := []string{
+		"### [Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  ·  [0.0.1](https://example.invalid/Codertocat/Hello-World/releases/tag/0.0.1)  ·  [Pulse](https://example.invalid/Codertocat/Hello-World/pulse)\n**1** PR opened · **1** issue opened · **1** closed · **1** ★",
+		// Forgejo has no Pulse page.
+		"### [soup/winnow-test](https://example.invalid/soup/winnow-test)  ·  [v1.0.0](https://example.invalid/soup/winnow-test/releases/tag/v1.0.0)\n**1** merged · **1** issue opened",
+		"### [autobrr/qui](https://github.example.invalid/autobrr/qui)  ·  [Pulse](https://github.example.invalid/autobrr/qui/pulse)\n**1** merged",
+	}
+	tests := []struct {
+		includeOther, totals string
+		repos                []string
+		footer               string
+	}{
+		{"", named, repos, "-# 3 repositories"},
+		{"false", named, repos, "-# 3 repositories"},
+		{"true", named + "\nOther: **2** label.created", append(slices.Clip(repos),
+			"### [autobrr/other-only](https://github.example.invalid/autobrr/other-only)  ·  [Pulse](https://github.example.invalid/autobrr/other-only/pulse)"), "-# 4 repositories"},
 	}
 	for _, tt := range tests {
 		t.Run("include_other="+tt.includeOther, func(t *testing.T) {
-			testDigestCountsEachMetric(t, tt.includeOther, tt.description, tt.footer)
+			var texts []string
+			for _, l := range append([]string{"-# week 40 · 29 September – 5 October", "## Weekly digest", tt.totals, "large"}, append(tt.repos, "small", tt.footer)...) {
+				switch l {
+				case "large":
+					texts = append(texts, `{"type": 14, "spacing": 2}`)
+					continue
+				case "small":
+					texts = append(texts, `{"type": 14}`)
+					continue
+				}
+				quoted, _ := json.Marshal(l)
+				texts = append(texts, `{"type": 10, "content": `+string(quoted)+`}`)
+			}
+			testDigestCountsEachMetric(t, tt.includeOther, container(14922561, texts...))
 		})
 	}
 }
 
-func testDigestCountsEachMetric(t *testing.T, includeOther, description, footer string) {
+func testDigestCountsEachMetric(t *testing.T, includeOther, want string) {
 	h := newHarness(t, withOther(digestConfig("weekly", "{}"), includeOther))
 	h.step(day(9, 29, 0, 0))
 	at := day(10, 1, 12, 0)
@@ -151,14 +195,7 @@ func testDigestCountsEachMetric(t *testing.T, includeOther, description, footer 
 	h.receive(at, h.otherOnly())
 	h.step(day(10, 6, 9, 0))
 	h.restart(h.config)
-	assertJSON(t, h.waitDiscord().Body, `{`+githubPoster+`,
-		"embeds": [{
-			"title": "Digest: week 40, 29 September – 5 October",
-			"description": "`+description+`",
-			"color": 14922561,
-			"footer": {"text": "`+footer+`"}
-		}],
-		"allowed_mentions": {"parse": []}}`)
+	assertJSON(t, h.waitDiscord().Body, `{`+githubPoster+`, "components": [`+want+`], "allowed_mentions": {"parse": []}}`)
 }
 
 func TestDigestPeriodEdges(t *testing.T) {
@@ -171,37 +208,47 @@ func TestDigestPeriodEdges(t *testing.T) {
 		t.Fatalf("got %d messages before the send time, want 0", len(got))
 	}
 	h.step(day(9, 29, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**Stars**  1") || strings.Contains(got.Description, "Forks") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** ★") || strings.Contains(got.Description, "fork") {
 		t.Errorf("week 39 = %q, want only the star", got.Description)
 	}
 	h.step(day(10, 6, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**Forks**  1") || strings.Contains(got.Description, "Stars") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** fork") || strings.Contains(got.Description, "★") {
 		t.Errorf("week 40 = %q, want only the fork", got.Description)
 	}
 }
 
+// helloLine is the Digest line of Codertocat/Hello-World, with the name
+// that the line shows.
+func helloLine(name string) string {
+	return "### [" + name + "](" + hello + ")  ·  [Pulse](" + hello + "/pulse)"
+}
+
 func TestDigestTitles(t *testing.T) {
 	// The default omits Other in each Period kind. include_other: true adds
-	// it in each Period kind.
-	for _, tt := range []struct{ includeOther, description, footer string }{
-		{"", `**Stars**  1\n\n[Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  1 star`, "1 repository"},
-		{"true", `**Stars**  1\n**Other**  1 label.created\n\n[Codertocat/Hello-World](https://example.invalid/Codertocat/Hello-World)  1 star\n[autobrr/qui](https://github.example.invalid/autobrr/qui)`, "2 repositories"},
+	// it in each Period kind. The repositories of the two Events have two
+	// owners, so the line over the heading names no owner.
+	for _, tt := range []struct{ includeOther, owner, description, footer string }{
+		{"", "Codertocat · ", "**1** ★\n" + helloLine("Hello-World") + "\n**1** ★", "1 repository"},
+		{"true", "", "**1** ★\nOther: **1** label.created\n" + helloLine("Codertocat/Hello-World") + "\n**1** ★\n" +
+			"### [autobrr/qui](https://github.example.invalid/autobrr/qui)  ·  [Pulse](https://github.example.invalid/autobrr/qui/pulse)", "2 repositories"},
 	} {
-		t.Run("include_other="+tt.includeOther, func(t *testing.T) { testDigestTitles(t, tt.includeOther, tt.description, tt.footer) })
+		t.Run("include_other="+tt.includeOther, func(t *testing.T) {
+			testDigestTitles(t, tt.includeOther, tt.owner, sentDigest{Description: tt.description, Footer: tt.footer})
+		})
 	}
 }
 
-func testDigestTitles(t *testing.T, includeOther, description, footer string) {
+func testDigestTitles(t *testing.T, includeOther, owner string, want sentDigest) {
 	tests := []struct {
 		every       string
 		first, recv time.Time
 		send        time.Time
-		want        string
+		dates       string
 	}{
-		{"daily", day(10, 4, 0, 0), day(10, 5, 12, 0), day(10, 6, 9, 0), "Digest: Sunday 5 October"},
-		{"weekly", day(9, 29, 0, 0), day(10, 5, 12, 0), day(10, 6, 9, 0), "Digest: week 40, 29 September – 5 October"},
-		{"monthly", day(9, 1, 0, 0), day(9, 30, 12, 0), day(10, 1, 9, 0), "Digest: September 2025"},
-		{"yearly", time.Date(2025, 1, 1, 0, 0, 0, 0, cest), day(10, 5, 12, 0), time.Date(2026, 1, 1, 9, 0, 0, 0, cest), "Digest: 2025"},
+		{"daily", day(10, 4, 0, 0), day(10, 5, 12, 0), day(10, 6, 9, 0), "Sunday 5 October"},
+		{"weekly", day(9, 29, 0, 0), day(10, 5, 12, 0), day(10, 6, 9, 0), "week 40 · 29 September – 5 October"},
+		{"monthly", day(9, 1, 0, 0), day(9, 30, 12, 0), day(10, 1, 9, 0), "September 2025"},
+		{"yearly", time.Date(2025, 1, 1, 0, 0, 0, 0, cest), day(10, 5, 12, 0), time.Date(2026, 1, 1, 9, 0, 0, 0, cest), "2025"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.every, func(t *testing.T) {
@@ -210,15 +257,34 @@ func testDigestTitles(t *testing.T, includeOther, description, footer string) {
 			h.receive(tt.recv, h.github("star", "star_created"))
 			h.receive(tt.recv, h.github("label", "label_created"))
 			h.step(tt.send)
-			h.restart(h.config)
-			assertJSON(t, h.waitDiscord().Body, `{`+githubPoster+`,
-				"embeds": [{
-					"title": "`+tt.want+`",
-					"description": "`+description+`",
-					"color": 14922561,
-					"footer": {"text": "`+footer+`"}
-				}],
-				"allowed_mentions": {"parse": []}}`)
+			want := want
+			want.Title = "-# " + owner + tt.dates + "\n## " + strings.ToUpper(tt.every[:1]) + tt.every[1:] + " digest"
+			if got := h.oneDigest(); got != want {
+				t.Errorf("got %+v\nwant %+v", got, want)
+			}
+		})
+	}
+}
+
+// The Digest shows the Icon of the owner when all its repositories have that
+// owner. A repository Icon does not count.
+func TestDigestIcon(t *testing.T) {
+	for _, tt := range []struct{ name, icons, want string }{
+		{"owner Icon", "icons: { CODERTOCAT: https://example.invalid/owner.png }", "https://example.invalid/owner.png"},
+		{"repository Icon only", "icons: { codertocat/hello-world: https://example.invalid/repo.png }", ""},
+		{"two owners", "icons: { codertocat: https://example.invalid/owner.png, autobrr: https://example.invalid/autobrr.png }", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, tt.icons+digestConfig("weekly", "{}"))
+			h.step(day(9, 29, 0, 0))
+			h.receive(day(10, 1, 12, 0), h.github("star", "star_created"))
+			if tt.name == "two owners" {
+				h.receive(day(10, 1, 12, 0), h.github("pull_request", "pull_request_merged"))
+			}
+			h.step(day(10, 6, 9, 0))
+			if got := h.oneDigest().Thumb; got != tt.want {
+				t.Errorf("thumbnail = %q, want %q", got, tt.want)
+			}
 		})
 	}
 }
@@ -237,7 +303,7 @@ func TestDigestSendTimeOnDSTChange(t *testing.T) {
 		t.Fatalf("got %d messages before 09:00, want 0", len(got))
 	}
 	h.step(time.Date(2025, 10, 26, 9, 0, 0, 0, oslo))
-	if got := h.oneDigest().Title; got != "Digest: Saturday 25 October" {
+	if got := h.oneDigest().Title; got != "-# Codertocat · Saturday 25 October\n## Daily digest" {
 		t.Errorf("title = %q", got)
 	}
 }
@@ -293,8 +359,8 @@ func TestDigestPeriodWithOnlyOtherEvents(t *testing.T) {
 		h.receive(day(10, 1, 12, 0), h.github("label", "label_created"))
 		h.step(day(10, 6, 9, 0))
 		got := h.oneDigest()
-		if want := "**Other**  1 label.created\n\n[autobrr/qui](https://github.example.invalid/autobrr/qui)"; got.Description != want || got.Footer.Text != "1 repository" {
-			t.Errorf("description %q, footer %q, want %q and 1 repository", got.Description, got.Footer.Text, want)
+		if want := "Other: **1** label.created\n### [qui](https://github.example.invalid/autobrr/qui)  ·  [Pulse](https://github.example.invalid/autobrr/qui/pulse)"; got.Description != want || got.Footer != "1 repository" {
+			t.Errorf("description %q, footer %q, want %q and 1 repository", got.Description, got.Footer, want)
 		}
 	})
 }
@@ -308,7 +374,7 @@ func TestDigestIncludeOtherAppliesToWholePeriod(t *testing.T) {
 	// Opt-in includes the earlier Other Event of the pending Period.
 	h.restart(config("true"))
 	h.step(day(10, 6, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**Other**  1 label.created") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "Other: **1** label.created") {
 		t.Errorf("week 40 = %q, want the label after opt-in", got.Description)
 	}
 	h.receive(day(10, 7, 12, 0), h.github("star", "star_created"))
@@ -318,7 +384,7 @@ func TestDigestIncludeOtherAppliesToWholePeriod(t *testing.T) {
 	h.restart(config("false"))
 	h.step(day(10, 13, 9, 0))
 	got := h.oneDigest()
-	if got.Title != "Digest: week 41, 6 October – 12 October" || strings.Contains(got.Description, "Other") {
+	if got.Title != "-# Codertocat · week 41 · 6 October – 12 October\n## Weekly digest" || strings.Contains(got.Description, "Other") {
 		t.Errorf("title %q, description %q, want week 41 without Other", got.Title, got.Description)
 	}
 }
@@ -341,11 +407,11 @@ func TestDigestIncludeOtherIsPerDigest(t *testing.T) {
 	}
 	want := map[string]bool{"1 repository": false, "2 repositories": true}
 	for _, e := range got {
-		other, ok := want[e.Footer.Text]
-		if !ok || strings.Contains(e.Description, "**Other**  1 label.created") != other {
-			t.Errorf("footer %q, description %q", e.Footer.Text, e.Description)
+		other, ok := want[e.Footer]
+		if !ok || strings.Contains(e.Description, "Other: **1** label.created") != other {
+			t.Errorf("footer %q, description %q", e.Footer, e.Description)
 		}
-		delete(want, e.Footer.Text)
+		delete(want, e.Footer)
 	}
 }
 
@@ -357,7 +423,7 @@ func TestDigestCountsDroppedEvent(t *testing.T) {
 		t.Fatalf("outcome = %v, want dropped", got)
 	}
 	h.step(day(10, 6, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**Stars**  1") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** ★") {
 		t.Errorf("description = %q, want 1 star", got.Description)
 	}
 }
@@ -371,7 +437,7 @@ func TestDigestExcludesBotAuthor(t *testing.T) {
 	h.receive(day(10, 1, 12, 0), signedDelivery("github-autobrr", "pull_request", merged))
 	h.receive(day(10, 1, 12, 0), signedDelivery("github-autobrr", "pull_request", renovate))
 	h.step(day(10, 6, 9, 0))
-	if got := h.oneDigest(); !strings.HasPrefix(got.Description, "**Pull requests**  1 merged\n") {
+	if got := h.oneDigest(); !strings.HasPrefix(got.Description, "**1** PR merged\n") {
 		t.Errorf("description = %q, want 1 merged", got.Description)
 	}
 }
@@ -385,18 +451,19 @@ func TestDigestCutsLongMessage(t *testing.T) {
 		h.receive(day(10, 1, 12, 0), signedDelivery("github-autobrr", "fork", body))
 	}
 	h.step(day(10, 6, 9, 0))
-	got := h.oneDigest()
-	if n := len([]rune(got.Description)); n > maxDescription {
-		t.Errorf("description has %d characters, want at most %d", n, maxDescription)
+	h.restart(h.config)
+	m := decodeMessage(t, h.waitDiscord().Body)
+	if n := textLength(m.Components); n > maxText {
+		t.Errorf("message has %d characters, want at most %d", n, maxText)
 	}
-	lines := strings.Split(got.Description, "\n")
-	last := lines[len(lines)-1]
-	shown := strings.Count(got.Description, "](")
-	if want := fmt.Sprintf("and %d more repositories", 100-shown); last != want {
-		t.Errorf("last line = %q, want %q", last, want)
+	texts := displays(m.Components)
+	also, footer, _ := strings.Cut(texts[len(texts)-1], "\n")
+	shown := strings.Count(strings.Join(texts, ""), "/pulse)") + strings.Count(also, "](")
+	if want := fmt.Sprintf(" · and **%d** more repositories", 100-shown); shown < 10 || !strings.HasPrefix(also, "-# Also merged: ") || !strings.HasSuffix(also, want) {
+		t.Errorf("last line = %q, want more than 10 repositories and the end %q", also, want)
 	}
-	if got.Footer.Text != "100 repositories" {
-		t.Errorf("footer = %q, want 100 repositories", got.Footer.Text)
+	if footer != "-# 100 repositories" {
+		t.Errorf("footer = %q, want 100 repositories", footer)
 	}
 }
 
@@ -408,7 +475,7 @@ func TestDigestCountsRedeliveryOnce(t *testing.T) {
 		h.do(h.github("star", "star_created")) // the same delivery ID
 	}
 	h.step(day(10, 6, 9, 0))
-	if got := h.oneDigest(); !strings.Contains(got.Description, "**Stars**  1") {
+	if got := h.oneDigest(); !strings.Contains(got.Description, "**1** ★") {
 		t.Errorf("description = %q, want 1 star", got.Description)
 	}
 }
@@ -424,7 +491,7 @@ func TestDigestCatchUpAfterRestart(t *testing.T) {
 	h.restart(h.config)
 	h.step(day(10, 6, 10, 0))
 	h.step(day(10, 6, 10, 1))
-	if got := h.oneDigest(); got.Title != "Digest: week 40, 29 September – 5 October" {
+	if got := h.oneDigest(); got.Title != "-# Codertocat · week 40 · 29 September – 5 October\n## Weekly digest" {
 		t.Errorf("title = %q, want week 40", got.Title)
 	}
 	var skipped []any
@@ -497,7 +564,7 @@ func TestDigestFirstRunIsPartial(t *testing.T) {
 				t.Fatalf("skipped lines = %v, want none", got)
 			}
 			h.step(tt.send)
-			if got := h.oneDigest().Footer.Text; got != "1 repository · from Wednesday 8 October" {
+			if got := h.oneDigest().Footer; got != "1 repository · from Wednesday 8 October" {
 				t.Errorf("footer = %q", got)
 			}
 		})
@@ -523,12 +590,12 @@ func TestDigestAddedLaterGetsOwnFirstRun(t *testing.T) {
 	}
 	// The later Digest counts only the star after its first run.
 	want := map[string]string{
-		"1 repository": "**Stars**  2",
-		"1 repository · from Wednesday 1 October": "**Stars**  1\n",
+		"1 repository": "**2** ★",
+		"1 repository · from Wednesday 1 October": "**1** ★\n",
 	}
 	for _, e := range got {
-		if w, ok := want[e.Footer.Text]; !ok || !strings.Contains(e.Description, w) {
-			t.Errorf("footer %q, description %q: want %q", e.Footer.Text, e.Description, w)
+		if w, ok := want[e.Footer]; !ok || !strings.Contains(e.Description, w) {
+			t.Errorf("footer %q, description %q: want %q", e.Footer, e.Description, w)
 		}
 	}
 }
@@ -559,7 +626,7 @@ func TestDigestWiderMatchCountsOnlyNewEvents(t *testing.T) {
 		first, _, _ := strings.Cut(e.Description, "\n")
 		stars[first] = true
 	}
-	if !stars["**Stars**  1"] || !stars["**Stars**  2"] {
+	if !stars["**1** ★"] || !stars["**2** ★"] {
 		t.Errorf("first lines = %v, want one with 1 star and one with 2", stars)
 	}
 }
@@ -580,8 +647,8 @@ func TestDigestChangedEveryIsNewDigest(t *testing.T) {
 	h.step(day(10, 13, 9, 0))
 	got := h.oneDigest()
 	// The weekly Digest counts from its first run, not the star of Monday.
-	if !strings.HasPrefix(got.Description, "**Stars**  1\n") || got.Footer.Text != "1 repository · from Wednesday 8 October" {
-		t.Errorf("description %q, footer %q", got.Description, got.Footer.Text)
+	if !strings.HasPrefix(got.Description, "**1** ★\n") || got.Footer != "1 repository · from Wednesday 8 October" {
+		t.Errorf("description %q, footer %q", got.Description, got.Footer)
 	}
 }
 

@@ -120,6 +120,11 @@ routes:
 # The Sweep alerts go to the soup channel.
 alerts: soup
 
+# The image of each release message and of the autobrr Digest. A repository
+# key wins over an owner key.
+icons:
+  autobrr: https://github.com/autobrr.png?size=128
+
 # One weekly message for autobrr. It also counts the forks that the
 # stars-forks Route drops. Set include_other: true to also count the Events
 # outside the named counts, for example CI runs and comments. Winnow keeps

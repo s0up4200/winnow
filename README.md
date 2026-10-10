@@ -63,7 +63,7 @@ In a flow mapping (a mapping in `{ }`), put the placeholder in quotes, for examp
 
 ### Sinks
 
-A Sink is the webhook URL of one Discord channel.
+A Sink is the webhook URL of one Discord channel. Winnow sends Discord Components V2 messages, with link buttons such as "Diff" and "Checks" on a pull request. A plain channel webhook can send them. You do not need a Discord bot application. Winnow adds `with_components=true` to the URL and keeps the query that the URL has, for example `thread_id`.
 
 ```yaml
 sinks:
@@ -101,7 +101,7 @@ Login matching ignores letter case. Repeated mentions and aliases produce one pi
 
 Comment pings apply to new issue comments, comments on pull requests, code review comments, and discussion comments on GitHub and Forgejo. A submitted review summary does not cause comment pings. Edits, deletions, and issue, pull request, or discussion bodies do not cause comment pings.
 
-Mentions in blockquotes, inline code, fenced and indented code blocks, URLs, image alt text, hidden HTML comments, lines of raw HTML such as `<details>` without a blank line after it, footnote labels, and escaped mentions stay quiet. Team mentions and unmapped users stay quiet. Raw Discord mention text cannot add pings. Pings appear above the embed, and the comment keeps its forge login text. A mention beyond the excerpt limit still pings. A comment larger than 256 KiB causes no pings. GitHub comments are never that large. Each message pings distinct users in mention order, up to 100 users and 2,000 content characters. Excess users stay quiet so that Discord can accept the comment notification.
+Mentions in blockquotes, inline code, fenced and indented code blocks, URLs, image alt text, hidden HTML comments, lines of raw HTML such as `<details>` without a blank line after it, footnote labels, and escaped mentions stay quiet. Team mentions and unmapped users stay quiet. Raw Discord mention text cannot add pings. Pings appear above the message box, and the comment keeps its forge login text. A mention beyond the excerpt limit still pings. A comment larger than 256 KiB causes no pings. GitHub comments are never that large. Each message pings distinct users in mention order, up to 100 users and 2,000 characters. Excess users stay quiet so that Discord can accept the comment notification.
 
 ```yaml
 users:
@@ -188,13 +188,27 @@ Each Digest must have these keys:
 
 `at` is the send time, `HH:MM` in the time zone of the container (`TZ`). The default is `09:00`. Winnow sends the message of a Period at `at` on the first day after the Period. For example, a weekly Digest sends on Monday.
 
-The message shows the totals first. Then it shows one line for each repository, with the most active repository first. A Digest message never pings anyone. If a Period has no Events, winnow sends no message.
+The message shows the totals first. Then it shows lines for the 6 most active repositories, with the most active repository first, and one line with the other repositories and the number of pull requests that each one merged. When all repositories have one owner, the message names the owner and shows the Icon of the owner (see [Icons](#icons)). A Digest message never pings anyone. If a Period has no Events, winnow sends no message.
 
 The counts include only the Events that winnow received. The first Period of a new Digest is partial, and its footer tells the day of the first count. If you rename a Digest or change its `every`, winnow counts it as a new Digest. If you change the name or `every` back to an earlier value, winnow continues the earlier Digest. If you make `match` wider, the counts include only the new Events after the change. If you make `match` narrower, the next message uses the new `match` for the whole Period.
 
 Winnow keeps each Other Event that `match` matches, also when `include_other` is `false`. A change to `include_other` takes effect when winnow restarts. The next message uses the new value for the whole Period. So `true` also includes the Other Events from before the change. Winnow does not send a Period again if it already sent it, skipped it, found it empty, or gave up on it.
 
 If winnow is down at the send time, it sends the message of the last Period when it starts. It skips each older Period and writes a `digest skipped` line. If Discord does not take the message, winnow tries again each hour. After 24 hours, it writes a `digest failed` line. Winnow keeps the tries in memory. If winnow restarts in these 24 hours, the start handles the Period as after downtime.
+
+### Icons
+
+An Icon is the image that a release message or a Digest shows for a repository or an owner. Set the Icons in the top-level `icons:` map. A key is a repository or an owner. A value is the URL of an image:
+
+```yaml
+icons:
+  autobrr: https://example.com/autobrr.png
+  autobrr/qui: https://example.com/qui.png
+```
+
+Keys ignore letter case. A repository key wins over an owner key. Winnow does not start when a value is not an `http` or `https` URL.
+
+A release message shows the Icon of its repository or owner. With no Icon, a GitHub release shows the avatar of the owner, and a Forgejo release shows the avatar of the sender. All other Event messages show the avatar of the sender. A Digest shows the Icon of the owner only when all its repositories have that owner.
 
 ### Sweeps
 

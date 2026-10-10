@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -70,18 +71,24 @@ func lastPeriod(d *Digest, now time.Time) period {
 	return p
 }
 
-// title returns the embed title of a Digest message for p.
-func (p period) title() string {
+// heading returns the heading of a Digest message for p, for example
+// "Weekly digest".
+func (p period) heading() string {
+	return strings.ToUpper(p.every[:1]) + p.every[1:] + " digest"
+}
+
+// dates returns the dates of p for the small line over the heading.
+func (p period) dates() string {
 	switch p.every {
 	case "daily":
-		return "Digest: " + longDay(p.start)
+		return longDay(p.start)
 	case "weekly":
 		_, week := p.start.ISOWeek()
-		return fmt.Sprintf("Digest: week %d, %s – %s", week, shortDay(p.start), shortDay(p.end.AddDate(0, 0, -1)))
+		return fmt.Sprintf("week %d · %s – %s", week, shortDay(p.start), shortDay(p.end.AddDate(0, 0, -1)))
 	case "monthly":
-		return "Digest: " + p.start.Format("January 2006")
+		return p.start.Format("January 2006")
 	}
-	return "Digest: " + p.start.Format("2006")
+	return p.start.Format("2006")
 }
 
 // shortDay returns a date as "5 October".
@@ -143,12 +150,18 @@ func (c *counts) activity() int {
 	return c.merged + c.prOpened + c.issOpened + c.issClosed + c.releases
 }
 
+// topRepos is the number of repositories that get their own lines in a
+// Digest message. The other repositories share one line.
+const topRepos = 6
+
 // summarize returns the Digest message for the Events of one Period. from
 // is the first-run time of the Digest when p is a partial Period, else the
-// zero time. It returns false when d includes no Event.
-func summarize(d *Digest, p period, from time.Time, events []Event) (message, bool) {
+// zero time. When all repositories have one owner, the message names the
+// owner and shows the Icon of the owner from icons. It returns false when d
+// includes no Event.
+func summarize(d *Digest, p period, from time.Time, events []Event, icons map[string]string) (message, bool) {
 	type repo struct {
-		name, url string
+		name, url, forge string
 		counts
 	}
 	var total counts
@@ -174,7 +187,7 @@ func summarize(d *Digest, p period, from time.Time, events []Event) (message, bo
 		key := e.RepoURL + " " + e.Repo
 		r := repos[key]
 		if r == nil {
-			r = &repo{name: e.Repo, url: e.RepoURL}
+			r = &repo{name: e.Repo, url: e.RepoURL, forge: e.Forge}
 			repos[key] = r
 		}
 		r.add(e, bool(d.IncludeOther))
@@ -184,96 +197,147 @@ func summarize(d *Digest, p period, from time.Time, events []Event) (message, bo
 	}
 
 	var lines []string
-	line := func(label string, parts ...string) {
+	line := func(prefix string, parts ...string) {
 		if parts = slices.DeleteFunc(parts, func(s string) bool { return s == "" }); len(parts) > 0 {
-			lines = append(lines, "**"+label+"**  "+strings.Join(parts, ", "))
+			lines = append(lines, prefix+strings.Join(parts, " · "))
 		}
 	}
-	line("Pull requests", count(total.merged, "merged"), count(total.prOpened, "opened"), count(total.prClosed, "closed"))
-	line("Issues", count(total.issOpened, "opened"), count(total.issClosed, "closed"))
-	line("Releases", count(total.releases, ""))
-	var community []string
-	labeled := func(label string, n int) {
-		if n > 0 {
-			community = append(community, "**"+label+"**  "+strconv.Itoa(n))
-		}
-	}
-	labeled("Stars", total.stars)
-	labeled("Forks", total.forks)
-	labeled("Discussions", total.discussions)
-	if len(community) > 0 {
-		lines = append(lines, strings.Join(community, " · "))
-	}
+	line("", tally("PR", []int{total.merged, total.prOpened, total.prClosed}, "merged", "opened", "closed")...)
+	line("", append(tally("issue", []int{total.issOpened, total.issClosed}, "opened", "closed"),
+		plural(total.releases, "release"), count(total.stars, "★"), plural(total.forks, "fork"), plural(total.discussions, "discussion"))...)
 	other := slices.SortedFunc(maps.Keys(total.other), func(a, b string) int {
 		return cmp.Or(total.other[b]-total.other[a], strings.Compare(a, b))
 	})
 	for i, k := range other {
 		other[i] = count(total.other[k], k)
 	}
-	line("Other", other...)
+	line("Other: ", other...)
 	totals := strings.Join(lines, "\n")
 
 	sorted := slices.SortedFunc(maps.Values(repos), func(a, b *repo) int {
 		return cmp.Or(b.activity()-a.activity(), strings.Compare(a.name, b.name))
 	})
-	lines = lines[:0]
-	for _, r := range sorted {
-		parts := []string{count(r.merged, "merged"), plural(r.issOpened, "issue"), plural(r.stars, "star"), r.tag}
-		parts = slices.DeleteFunc(parts, func(s string) bool { return s == "" })
-		l := "[" + r.name + "](" + r.url + ")"
-		if len(parts) > 0 {
-			l += "  " + strings.Join(parts, " · ")
+	// owner is the owner of all repositories, or "" when they have more
+	// than one owner.
+	var owner string
+	for i, r := range sorted {
+		o, _, _ := strings.Cut(r.name, "/")
+		if i > 0 && !strings.EqualFold(o, owner) {
+			owner = ""
+			break
 		}
-		lines = append(lines, l)
+		owner = o
 	}
-	desc := describe(totals, lines)
+	var top, rest []string
+	for i, r := range sorted {
+		name := r.name
+		if owner != "" {
+			name = name[len(owner)+1:]
+		}
+		if i >= topRepos {
+			l := link(name, r.url)
+			if r.merged > 0 {
+				l += " " + strconv.Itoa(r.merged)
+			}
+			rest = append(rest, l)
+			continue
+		}
+		heading := "### " + link(name, r.url)
+		if r.tag != "" {
+			heading += "  ·  " + link(r.tag, r.url+"/releases/tag/"+url.PathEscape(r.tag))
+		}
+		if r.forge == "github" {
+			heading += "  ·  " + link("Pulse", r.url+"/pulse")
+		}
+		parts := append([]string{count(r.merged, "merged"), did(r.prOpened, "PR", "opened")},
+			tally("issue", []int{r.issOpened, r.issClosed}, "opened", "closed")...)
+		parts = slices.DeleteFunc(append(parts, count(r.stars, "★")), func(s string) bool { return s == "" })
+		top = append(top, strings.TrimSpace(heading+"\n"+strings.Join(parts, " · ")))
+	}
 
-	footer := strconv.Itoa(len(repos)) + " repositories"
+	footer := "-# " + strconv.Itoa(len(repos)) + " repositories"
 	if len(repos) == 1 {
-		footer = "1 repository"
+		footer = "-# 1 repository"
 	}
 	if !from.IsZero() {
 		footer += " · from " + longDay(from)
 	}
-	return message{
-		Username:  "GitHub",
-		AvatarURL: githubIcon,
-		Embeds: []embed{{
-			Title:       p.title(),
-			Description: desc,
-			Color:       colorStar,
-			Footer:      embedFooter{Text: footer},
-		}},
-	}, true
+	sub := "-# " + p.dates()
+	if owner != "" {
+		sub = "-# " + owner + " · " + p.dates()
+	}
+	heading := "## " + p.heading()
+	totals, top, also := fit(maxText-utf8.RuneCountInString(sub+heading+footer), totals, top, rest)
+	in := beside(icons[strings.ToLower(owner)], display(sub), display(heading), display(totals))
+	in = append(in, component{Type: typeSeparator, Spacing: spacingLarge})
+	for _, l := range top {
+		in = append(in, display(l))
+	}
+	in = append(in, component{Type: typeSeparator}, display(also+footer))
+	return message{Username: "GitHub", AvatarURL: githubIcon, Components: []component{box(colorStar, in...)}}, true
 }
 
-// describe joins the totals and the repository lines. When the text is
-// longer than the Discord limit, it cuts whole repository lines and ends
-// with "and N more repositories". When the totals alone are too long, it
-// cuts the text.
-func describe(totals string, lines []string) string {
-	for shown := len(lines); ; shown-- {
-		desc := totals + "\n\n" + strings.Join(lines[:shown], "\n")
-		if shown < len(lines) {
-			desc += "\nand " + plural(len(lines)-shown, "more repository")
+// fit returns the totals, the top repository lines, and the line with the
+// links to the other repositories, which fit in room characters together.
+// The line ends with a newline, or is empty when no repository is left. fit
+// drops whole repositories from the end, and then adds "and N more
+// repositories" to the line. When the totals alone are too long, it cuts
+// them.
+func fit(room int, totals string, top, rest []string) (string, []string, string) {
+	all := len(top) + len(rest)
+	for shown := all; ; shown-- {
+		t, r := top[:min(shown, len(top))], rest[:max(0, shown-len(top))]
+		if shown < all {
+			r = append(slices.Clip(r), "and "+plural(all-shown, "more repository"))
 		}
-		if utf8.RuneCountInString(desc) <= maxDescription {
-			return strings.TrimSpace(desc)
+		also := ""
+		if len(r) > 0 {
+			also = "-# Also merged: " + strings.Join(r, " · ") + "\n"
+		}
+		size := utf8.RuneCountInString(totals + strings.Join(t, "") + also)
+		if size <= room {
+			return totals, t, also
 		}
 		if shown == 0 {
 			// The totals alone are too long, for example with many other
 			// Events.
-			return cut(strings.TrimSpace(desc), maxDescription)
+			return cut(totals, max(1, room-utf8.RuneCountInString(also))), nil, also
 		}
 	}
 }
 
-// count returns "<n> <what>", or "" when n is 0.
+// did returns "<n> <noun>s <verb>" with n in bold, for example "**2** PRs
+// merged", or "" when n is 0.
+func did(n int, noun, verb string) string {
+	if s := plural(n, noun); s != "" {
+		return s + " " + verb
+	}
+	return ""
+}
+
+// tally returns the counts of noun for each verb, for example "**2** PRs
+// merged" and "**1** opened". Only the first count that is not 0 names the
+// noun. A count of 0 gives no part.
+func tally(noun string, ns []int, verbs ...string) []string {
+	var parts []string
+	for i, n := range ns {
+		switch {
+		case n == 0:
+		case len(parts) == 0:
+			parts = append(parts, did(n, noun, verbs[i]))
+		default:
+			parts = append(parts, count(n, verbs[i]))
+		}
+	}
+	return parts
+}
+
+// count returns "<n> <what>" with n in bold, or "" when n is 0.
 func count(n int, what string) string {
 	if n == 0 {
 		return ""
 	}
-	return strings.TrimSpace(strconv.Itoa(n) + " " + what)
+	return "**" + strconv.Itoa(n) + "** " + what
 }
 
 // plural returns "<n> <noun>" with the plural of noun when n is not 1, or ""
@@ -423,7 +487,7 @@ func (s *Server) sendDigest(ctx context.Context, d *Digest, p period, first, now
 		return err
 	}
 	k := tryKey{d.Name, p.key()}
-	msg, ok := summarize(d, p, from, events)
+	msg, ok := summarize(d, p, from, events, s.cfg.Icons)
 	if !ok {
 		return s.store.setState(d.key(), k.period, "empty")
 	}

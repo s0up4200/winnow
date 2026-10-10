@@ -17,6 +17,7 @@ const queueSize = 100
 // worker for each Sink, and it writes each failed delivery line.
 type outbox struct {
 	sinks    map[string]*sink
+	icons    map[string]string // the Icons of the configuration
 	log      *slog.Logger
 	failures *prometheus.CounterVec
 	wg       sync.WaitGroup     // the Sink workers
@@ -63,7 +64,7 @@ func (f *failure) Error() string {
 // of cfg.
 func newOutbox(cfg *Config, log *slog.Logger, failures *prometheus.CounterVec) *outbox {
 	ctx, stop := context.WithCancel(context.Background())
-	o := &outbox{sinks: map[string]*sink{}, log: log, failures: failures, drain: make(chan struct{}), stop: stop}
+	o := &outbox{sinks: map[string]*sink{}, icons: cfg.Icons, log: log, failures: failures, drain: make(chan struct{}), stop: stop}
 	for name, sc := range cfg.Sinks {
 		sk := &sink{name: name, pings: pings{users: cfg.Users, kinds: sc.kinds}, queue: make(chan entry, queueSize), discord: newDiscordSender(sc)}
 		o.sinks[name] = sk
@@ -84,7 +85,7 @@ func (o *outbox) deliver(e *Event, route *Route) {
 	defer o.mu.RUnlock()
 	for _, to := range route.To {
 		sk := o.sinks[to]
-		o.enqueue(sk, entry{route: route.Name, attrs: attrs}, func() message { return render(e, sk.pings) })
+		o.enqueue(sk, entry{route: route.Name, attrs: attrs}, func() message { return render(e, sk.pings, o.icons) })
 	}
 }
 

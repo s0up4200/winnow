@@ -193,11 +193,7 @@ func alertTitles(t *testing.T, reqs []discordRequest) []string {
 		if r.Sink != "alerts" {
 			continue
 		}
-		var m message
-		if err := json.Unmarshal(r.Body, &m); err != nil {
-			t.Fatal(err)
-		}
-		titles = append(titles, m.Embeds[0].Title)
+		titles = append(titles, strings.TrimPrefix(displays(decodeMessage(t, r.Body).Components)[0], "## "))
 	}
 	return titles
 }
@@ -253,17 +249,13 @@ func TestSweepBackfillCountsInItsPeriod(t *testing.T) {
 	// before the Digest send at 09:00 finds it.
 	h.missed("star", "star_created", day(10, 1, 23, 59), 502)
 	h.step(day(10, 2, 9, 0))
-	var digests []embed
+	var digests []string
 	for _, r := range h.drain() {
 		if r.Sink == "digest" {
-			var m message
-			if err := json.Unmarshal(r.Body, &m); err != nil {
-				t.Fatal(err)
-			}
-			digests = append(digests, m.Embeds...)
+			digests = append(digests, allText(decodeMessage(t, r.Body)))
 		}
 	}
-	if len(digests) != 1 || digests[0].Title != "Digest: Wednesday 1 October" || !strings.Contains(digests[0].Description, "**Stars**  1") {
+	if len(digests) != 1 || !strings.HasPrefix(digests[0], "-# Codertocat · Wednesday 1 October\n") || !strings.Contains(digests[0], "**1** ★\n") {
 		t.Errorf("digests = %+v, want one for 1 October with one star", digests)
 	}
 }
@@ -328,23 +320,19 @@ func TestRedeliveryAfterBackfillRoutes(t *testing.T) {
 	h.step(day(10, 2, 9, 0))
 
 	var rest int
-	var digests []embed
+	var digests []string
 	for _, r := range h.drain() {
 		switch r.Sink {
 		case "rest":
 			rest++
 		case "digest":
-			var m message
-			if err := json.Unmarshal(r.Body, &m); err != nil {
-				t.Fatal(err)
-			}
-			digests = append(digests, m.Embeds...)
+			digests = append(digests, allText(decodeMessage(t, r.Body)))
 		}
 	}
 	if rest != 1 {
 		t.Errorf("got %d messages to rest, want 1", rest)
 	}
-	if len(digests) != 1 || !strings.Contains(digests[0].Description, "**Stars**  1") {
+	if len(digests) != 1 || !strings.Contains(digests[0], "**1** ★\n") {
 		t.Errorf("digests = %+v, want one with one star", digests)
 	}
 }
@@ -484,12 +472,9 @@ func TestSweepAlertsOnFailureAndRecovery(t *testing.T) {
 					if r.Sink != "alerts" {
 						continue
 					}
-					var m message
-					if err := json.Unmarshal(r.Body, &m); err != nil {
-						t.Fatal(err)
-					}
-					if e := m.Embeds[0]; e.Title == "Sweep of github-autobrr failed" && e.Description != want {
-						t.Errorf("failure description = %q, want %q", e.Description, want)
+					texts := displays(decodeMessage(t, r.Body).Components)
+					if texts[0] == "## Sweep of github-autobrr failed" && (len(texts) != 2 || texts[1] != want) {
+						t.Errorf("failure text = %q, want %q", texts[1:], want)
 					}
 				}
 			})

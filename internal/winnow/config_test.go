@@ -47,6 +47,8 @@ routes:
   - match: { target: x }
     to: [a]
 `, "target"},
+		{"Icon that is not an http URL", quiConfig + "icons: { autobrr: ftp://example.invalid/a.png }\n", "icons.autobrr"},
+		{"Icon with no host", quiConfig + "icons: { autobrr/qui: https:///a.png }\n", "icons.autobrr/qui"},
 		{"empty secret", `
 sources:
   s: { secret: "" }

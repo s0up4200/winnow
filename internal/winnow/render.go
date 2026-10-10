@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,27 +19,39 @@ const (
 	forgejoIcon = "https://forgejo.org/favicon.png"
 )
 
-// The embed colors, from the GitHub color scheme.
+// The accent colors of the Containers, from the GitHub color scheme.
 const (
 	colorOpen   = 0x1f883d
 	colorClosed = 0xcf222e
 	colorMerged = 0x8250df
 	colorStar   = 0xe3b341
-	// colorSecurity is the embed color of a security Event.
+	// colorSecurity is the color of a security Event.
 	colorSecurity = 0xE36209
 )
 
-// The Discord limits of an embed, in characters.
+// The limits of a message, in characters. Discord counts the text of all
+// components in one message together. maxTitle is the limit of winnow for
+// the heading.
 const (
-	maxTitle       = 256
-	maxDescription = 4096
+	maxTitle = 256
+	maxText  = 4000
 )
+
+// shortBody is the largest body, in visible characters, that goes into the
+// Section beside the thumbnail.
+const shortBody = 400
+
+// shortTitle is the longest heading, in characters, that leaves a gap beside
+// the thumbnail. The first lines of a long body then fill the gap.
+//
+// ponytail: a guess for the desktop width. A phone wraps sooner.
+const shortTitle = 60
 
 // maxPingUsers is the Discord limit of user IDs in allowed_mentions.
 const maxPingUsers = 100
 
 // maxExcerptBody is the number of bytes of a body that excerpt reads. Only
-// 4096 characters reach Discord, so a larger body only costs memory.
+// 4000 characters reach Discord, so a larger body only costs memory.
 //
 // ponytail: when the cut is in an HTML comment, the comment has no end, so
 // clean keeps its text. Raise the limit if a real body has a comment of
@@ -47,62 +60,64 @@ const maxExcerptBody = 256 << 10
 
 // render turns an Event into one Discord message. It selects the Renderer by
 // the Event name. An Event name with no Renderer, or a Renderer that returns
-// the zero embed, gets the Fallback message. The Poster of each message is
+// the zero card, gets the Fallback message. The Poster of each message is
 // the forge of the Event. The message pings the target of e when the User
 // map holds the target and the target is not the sender. New comments also
 // ping mapped logins in ordinary text. Each Ping needs its kind in p. A
-// Fallback message never pings.
-func render(e *Event, p pings) message {
-	var em embed
+// Fallback message never pings. A release shows the Icon in icons.
+func render(e *Event, p pings, icons map[string]string) message {
+	var c card
 	switch e.Name {
 	case "issues":
-		em = renderIssue(e)
+		c = renderIssue(e)
 	case "pull_request":
-		em = renderPullRequest(e)
+		c = renderPullRequest(e)
 	case "issue_comment":
-		em = renderIssueComment(e)
+		c = renderIssueComment(e)
 	case "pull_request_review":
-		em = renderReview(e)
+		c = renderReview(e)
 	case "pull_request_review_comment":
-		em = titled(e, "New review comment")
+		c = titled(e, "New review comment")
 	case "discussion":
-		em = titled(e, "Discussion "+words(e.Action))
+		c = titled(e, "Discussion "+words(e.Action))
 	case "discussion_comment":
-		em = titled(e, "New comment on discussion")
+		c = titled(e, "New comment on discussion")
 	case "push":
-		em = renderPush(e)
+		c = renderPush(e)
 	case "release":
-		em = titled(e, "Release "+words(e.Action))
+		c = titled(e, "Release "+words(e.Action))
+		c.thumb = releaseThumb(e, icons)
 	case "fork":
-		em = titled(e, "Fork created")
+		c = titled(e, "Fork created")
 	case "watch", "star":
 		// GitHub sends watch.started and star.created for one star. An
 		// unstar, star.deleted, gets the Fallback message.
 		if e.Action != "deleted" {
-			em = titled(e, "New star")
-			em.Color = colorStar
+			c = titled(e, "New star")
+			c.color = colorStar
 		}
 	case "dependabot_alert":
-		em = renderAlert(e, "Dependabot alert")
+		c = renderAlert(e, "Dependabot alert")
 	case "code_scanning_alert":
-		em = renderAlert(e, "Code scanning alert")
+		c = renderAlert(e, "Code scanning alert")
 	case "secret_scanning_alert":
-		em = renderAlert(e, "Secret scanning alert")
+		c = renderAlert(e, "Secret scanning alert")
 	case "repository_advisory":
-		em = renderAlert(e, "Repository advisory")
+		c = renderAlert(e, "Repository advisory")
 	}
-	ping := em != (embed{})
-	if !ping {
-		em = fallback(e)
+	ping := c.title != ""
+	if ping {
+		c.buttons = buttons(e)
+	} else {
+		c = fallback(e)
 	}
-	em.Title = cut(em.Title, maxTitle)
-	em.Description = cut(em.Description, maxDescription)
-	msg := message{Username: "GitHub", AvatarURL: githubIcon, Embeds: []embed{em}}
+	msg := message{Username: "GitHub", AvatarURL: githubIcon}
 	if e.Forge == "forgejo" {
 		msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
 	}
+	var mentions string // the Ping text
 	if id, ok := p.users[strings.ToLower(e.Target)]; ok && ping && p.kinds[e.Action] && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
-		msg.Content = "<@" + id + ">"
+		mentions = "<@" + id + ">"
 		msg.AllowedMentions.Users = []string{id}
 	}
 	if ping && p.kinds["comments"] && len(p.users) > 0 {
@@ -110,18 +125,119 @@ func render(e *Event, p pings) message {
 		case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
 			for _, id := range commentMentions(e.Body, e.Sender, p.users) {
 				mention := "<@" + id + ">"
-				if msg.Content != "" {
+				if mentions != "" {
 					mention = " " + mention
 				}
-				if len(msg.AllowedMentions.Users) == maxPingUsers || len(msg.Content)+len(mention) > 2000 {
+				// 2000 characters leave room for the rest of the message.
+				if len(msg.AllowedMentions.Users) == maxPingUsers || len(mentions)+len(mention) > 2000 {
 					break
 				}
-				msg.Content += mention
+				mentions += mention
 				msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
 			}
 		}
 	}
+	msg.Components = layout(c, mentions)
 	return msg
+}
+
+// card is the content of one Event message, before the layout.
+type card struct {
+	color             int
+	sender, senderURL string // the small line over the heading, or empty
+	thumb             string // the image beside the heading, or empty
+	title, url        string // the heading and its link
+	body              string // the excerpt, not cut yet
+	buttons           []button
+}
+
+// layout returns the components of the message of c. The Ping is a Text
+// Display above the Container, so that it shows outside the box. In the
+// Container, a Section holds the sender line and the heading, with the
+// thumbnail on its right side. A short body goes into the Section, under the
+// heading. A long body goes under the Section at full width, but when the
+// heading is short, its first lines fill the gap beside the thumbnail. The
+// buttons come last, after a Separator. The body gets the part of maxText
+// that the other text leaves, and layout cuts it at a word boundary.
+func layout(c card, ping string) []component {
+	var head []component
+	used := utf8.RuneCountInString(ping)
+	if c.sender != "" {
+		head = append(head, display("-# "+link(c.sender, c.senderURL)))
+		used += utf8.RuneCountInString(head[0].Content)
+	}
+	heading := "## " + link(cut(c.title, maxTitle), c.url)
+	used += utf8.RuneCountInString(heading) + 1 // 1 for the newline before the body
+	for _, b := range c.buttons {
+		used += utf8.RuneCountInString(b.label)
+	}
+	var body string
+	if room := maxText - used; room > 0 {
+		body = cutWords(c.body, room)
+	}
+	top, rest := "", body
+	switch {
+	case body == "":
+	case visible(body) <= shortBody:
+		top, rest = body, ""
+	case c.thumb != "" && utf8.RuneCountInString(c.title) <= shortTitle:
+		top, rest = split(body)
+	}
+	// The body lines in the Section share the Text Display of the heading,
+	// so that Discord puts its heading margin under the heading.
+	if top != "" {
+		heading += "\n" + top
+	}
+	in := beside(c.thumb, append(head, display(heading))...)
+	if rest != "" {
+		in = append(in, display(rest))
+	}
+	in = append(in, buttonRow(c.buttons)...)
+	if ping == "" {
+		return []component{box(c.color, in...)}
+	}
+	return []component{display(ping), box(c.color, in...)}
+}
+
+// The limits of the first lines of a long body that go beside the
+// thumbnail.
+const (
+	topLines   = 3
+	topVisible = 160
+)
+
+// split returns the first lines of body, at most topLines lines and about
+// topVisible visible characters, and the rest. The first lines stop at a
+// blank line and before a code block.
+func split(body string) (top, rest string) {
+	lines := strings.Split(body, "\n")
+	size, i := 0, 0
+	for ; i < len(lines) && i < topLines; i++ {
+		if fenceOpen.MatchString(lines[i]) || (i > 0 && strings.TrimSpace(lines[i]) == "") {
+			break
+		}
+		if size += visible(lines[i]); size > topVisible {
+			break
+		}
+	}
+	return strings.Join(lines[:i], "\n"), strings.TrimLeft(strings.Join(lines[i:], "\n"), "\n")
+}
+
+// linkText matches an inline markdown link, so that visible counts only its
+// text.
+var linkText = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+
+// visible returns the number of characters that Discord shows for the
+// markdown s: a link counts with its text, not its URL.
+func visible(s string) int { return utf8.RuneCountInString(linkText.ReplaceAllString(s, "$1")) }
+
+// link returns a markdown link to url with the text t, or t when url is
+// empty.
+func link(t, url string) string {
+	if url == "" {
+		return t
+	}
+	return "[" + t + "](" + url + ")"
 }
 
 // pings is the Ping setting of one Sink: the User map and the kinds of Ping
@@ -131,17 +247,17 @@ type pings struct {
 	kinds pingKinds
 }
 
-// fallback returns the embed of the Fallback message: "<event>.<action> on
-// <repo> by <sender>", with a link to the main object. It reads only the
-// shared fields of the Event and never pings.
-func fallback(e *Event) embed {
-	return embed{Title: e.NameAction() + " on " + e.Repo + " by " + e.Sender, URL: e.URL}
+// fallback returns the card of the Fallback message: only the heading
+// "<event>.<action> on <repo> by <sender>", with a link to the main object.
+// It reads only the shared fields of the Event and never pings.
+func fallback(e *Event) card {
+	return card{title: e.NameAction() + " on " + e.Repo + " by " + e.Sender, url: e.URL}
 }
 
-// titled returns an embed with the sender as author, the title
+// titled returns a card with the sender and its avatar, the heading
 // "[repo] <kind>: #n title", the link to the main object, and the excerpt
 // of the body.
-func titled(e *Event, kind string) embed {
+func titled(e *Event, kind string) card {
 	title := "[" + e.Repo + "] " + kind
 	switch {
 	case e.Number > 0:
@@ -149,12 +265,89 @@ func titled(e *Event, kind string) embed {
 	case e.Title != "":
 		title += ": " + e.Title
 	}
-	return embed{
-		Author:      embedAuthor{Name: e.Sender, URL: e.SenderURL, IconURL: avatar(e)},
-		Title:       title,
-		URL:         e.URL,
-		Description: excerpt(e),
+	return card{sender: e.Sender, senderURL: e.SenderURL, thumb: avatar(e), title: title, url: e.URL, body: excerpt(e)}
+}
+
+// releaseThumb returns the thumbnail of a release: the Icon of the
+// repository or its owner, else on GitHub the avatar of the owner, else the
+// avatar of the sender.
+func releaseThumb(e *Event, icons map[string]string) string {
+	if v, ok := icons[strings.ToLower(e.Repo)]; ok {
+		return v
 	}
+	if v, ok := icons[strings.ToLower(e.Owner)]; ok {
+		return v
+	}
+	if e.Forge == "github" && e.OwnerAvatar != "" {
+		return e.OwnerAvatar
+	}
+	return avatar(e)
+}
+
+// buttons returns the link buttons of e. No button opens the same page as
+// the heading or the sender line. Forgejo has no checks page, and its lists
+// filter by the numeric ID of the poster, so a Forgejo Event gets no Checks
+// button and no list button.
+func buttons(e *Event) []button {
+	var bs []button
+	add := func(label, url string) { bs = append(bs, button{label, url}) }
+	if e.Name == "dependabot_alert" && e.Alert != nil && e.Alert.GHSA != "" {
+		if u, err := url.Parse(e.RepoURL); err == nil && u.Host != "" {
+			add("Advisory", u.Scheme+"://"+u.Host+"/advisories/"+e.Alert.GHSA)
+		}
+		return bs
+	}
+	if e.RepoURL == "" || e.Number == 0 {
+		return nil
+	}
+	n := strconv.Itoa(e.Number)
+	github := e.Forge == "github"
+	// onPull is a comment or a review on a pull request. Its heading links
+	// to the comment, so it gets the PR button.
+	onPull := e.Name == "pull_request_review" || e.Name == "pull_request_review_comment" || (e.IsPull != nil && *e.IsPull)
+	// authors adds the Author button on a comment or a review when the
+	// Author is not the sender, and the list of the Author on GitHub. The
+	// labels of a GitHub App author have no [bot], and its list filters by
+	// app/<name>.
+	authors := func(comment bool, kind, path, is string) {
+		if e.Author == "" {
+			return
+		}
+		name, query := e.Author, e.Author
+		if app, ok := strings.CutSuffix(e.Author, "[bot]"); ok {
+			name, query = app, "app/"+app
+		}
+		if comment && e.AuthorURL != "" && !strings.EqualFold(e.Author, e.Sender) {
+			add(name, e.AuthorURL)
+		}
+		if github {
+			add(kind+" by "+name, e.RepoURL+"/"+path+"?q="+url.QueryEscape("is:"+is+" author:"+query))
+		}
+	}
+	switch {
+	case e.Name == "pull_request" || onPull:
+		pull := e.RepoURL + "/pull/" + n
+		if !github {
+			pull = e.RepoURL + "/pulls/" + n
+		}
+		if onPull {
+			add("PR", pull)
+		}
+		add("Diff", pull+"/files")
+		if github {
+			add("Checks", pull+"/checks")
+		}
+		authors(onPull, "PRs", "pulls", "pr")
+	case e.Name == "issues" || e.Name == "issue_comment":
+		comment := e.Name == "issue_comment"
+		if comment {
+			add("Issue", e.RepoURL+"/issues/"+n)
+		}
+		authors(comment, "Issues", "issues", "issue")
+	case e.Name == "discussion_comment":
+		add("Discussion", e.RepoURL+"/discussions/"+n)
+	}
+	return bs
 }
 
 // avatar returns the icon of the sender of e. A Forgejo sender, or a sender
@@ -171,8 +364,8 @@ func avatar(e *Event) string {
 	return "https://www.gravatar.com/avatar/" + hex.EncodeToString(sum[:]) + "?d=identicon&s=128"
 }
 
-// excerpt returns the clean body of e with its References linked, cut at a
-// word boundary to the Discord limit. Only a new issue, pull request,
+// excerpt returns the clean body of e with its References linked. layout
+// cuts it to the Discord limit. Only a new issue, pull request,
 // discussion, comment, review, or release, and a reported or published
 // repository advisory, shows the body.
 func excerpt(e *Event) string {
@@ -186,7 +379,7 @@ func excerpt(e *Event) string {
 			// ToValidUTF8 drops a character that the cut splits.
 			body = strings.ToValidUTF8(body[:maxExcerptBody], "")
 		}
-		return cutWords(clean(body, e.RepoURL), maxDescription)
+		return clean(body, e.RepoURL)
 	}
 	return ""
 }
@@ -386,25 +579,25 @@ func cells(row string) string {
 	return strings.Join(parts, " · ")
 }
 
-func renderIssue(e *Event) embed {
-	em := titled(e, "Issue "+e.Action)
-	em.Color = stateColor(e.Action)
-	return em
+func renderIssue(e *Event) card {
+	c := titled(e, "Issue "+e.Action)
+	c.color = stateColor(e.Action)
+	return c
 }
 
 // renderPullRequest shows a merge as "merged". A merge is the action closed
 // with merged true.
-func renderPullRequest(e *Event) embed {
+func renderPullRequest(e *Event) card {
 	kind, color := words(e.Action), stateColor(e.Action)
 	if e.Action == "closed" && e.Merged != nil && *e.Merged {
 		kind, color = "merged", colorMerged
 	}
-	em := titled(e, "Pull request "+kind)
-	em.Color = color
-	return em
+	c := titled(e, "Pull request "+kind)
+	c.color = color
+	return c
 }
 
-func renderIssueComment(e *Event) embed {
+func renderIssueComment(e *Event) card {
 	if e.IsPull != nil && *e.IsPull {
 		return titled(e, "New comment on pull request")
 	}
@@ -412,24 +605,25 @@ func renderIssueComment(e *Event) embed {
 }
 
 // renderReview shows the review state, for example "Review approved".
-func renderReview(e *Event) embed {
+func renderReview(e *Event) card {
 	var state string
 	if e.ReviewState != nil {
 		state = *e.ReviewState
 	}
-	em := titled(e, "Review "+words(state))
+	c := titled(e, "Review "+words(state))
 	switch state {
 	case "approved":
-		em.Color = colorOpen
+		c.color = colorOpen
 	case "changes_requested":
-		em.Color = colorClosed
+		c.color = colorClosed
 	}
-	return em
+	return c
 }
 
 // renderPush shows one line for each commit, or the branch or tag that the
-// push made or deleted.
-func renderPush(e *Event) embed {
+// push made or deleted. A commit line names the commit author only when the
+// author is not the pusher, and links the References in the message.
+func renderPush(e *Event) card {
 	var ref string
 	if e.Ref != nil {
 		ref = *e.Ref
@@ -446,27 +640,31 @@ func renderPush(e *Event) embed {
 	case p.Created && p.Size == 0:
 		return titled(e, kind+" created: "+name)
 	}
-	em := titled(e, "")
-	em.Title = fmt.Sprintf("[%s:%s] %d new commit", e.Repo, name, p.Size)
+	c := titled(e, "")
+	c.title = fmt.Sprintf("[%s:%s] %d new commit", e.Repo, name, p.Size)
 	if p.Size != 1 {
-		em.Title += "s"
+		c.title += "s"
 	}
 	lines := make([]string, 0, len(p.Commits))
-	for _, c := range p.Commits {
-		msg, _, _ := strings.Cut(c.Message, "\n")
-		lines = append(lines, fmt.Sprintf("[`%s`](%s) %s - %s", c.ID[:min(7, len(c.ID))], c.URL, msg, c.Author))
+	for _, cm := range p.Commits {
+		msg, _, _ := strings.Cut(cm.Message, "\n")
+		line := fmt.Sprintf("[`%s`](%s) %s", cm.ID[:min(7, len(cm.ID))], cm.URL, linkReferences(msg, e.RepoURL))
+		if !strings.EqualFold(cm.Author, e.Sender) {
+			line += " - " + cm.Author
+		}
+		lines = append(lines, line)
 	}
-	em.Description = strings.Join(lines, "\n")
-	return em
+	c.body = strings.Join(lines, "\n")
+	return c
 }
 
-// renderAlert returns the embed of a security Event: the sender as author,
-// "[repo] <kind> <action>: #n summary", and one description line for each
-// Alert field that is set. An Event with no Alert gets the zero embed.
-func renderAlert(e *Event, kind string) embed {
+// renderAlert returns the card of a security Event: the sender,
+// "[repo] <kind> <action>: #n summary", and one body line for each Alert
+// field that is set. An Event with no Alert gets the zero card.
+func renderAlert(e *Event, kind string) card {
 	a := e.Alert
 	if a == nil {
-		return embed{}
+		return card{}
 	}
 	title := "[" + e.Repo + "] " + kind + " " + e.Action + ": "
 	if a.Number != 0 {
@@ -484,17 +682,17 @@ func renderAlert(e *Event, kind string) embed {
 	}
 	add("Patched in", a.Patched)
 	add("Validity", a.Validity)
-	// A repository advisory also shows the report under the fields. The
-	// report gets the space that the fields and the blank line leave.
+	// A repository advisory also shows the report under the fields. The cut
+	// of layout is at the end, so the report gets the space that the fields
+	// leave.
 	if body := excerpt(e); body != "" {
-		used := utf8.RuneCountInString(strings.Join(lines, "\n")) + 2
-		lines = append(lines, "", cutWords(body, maxDescription-used))
+		lines = append(lines, "", body)
 	}
-	// titled sets the author. A security Event can come with no sender. Then
-	// the author is empty and the embed has no author.
-	em := titled(e, "")
-	em.Title, em.Description, em.Color = title+a.Summary, strings.Join(lines, "\n"), colorSecurity
-	return em
+	// titled sets the sender. A security Event can come with no sender. Then
+	// the card has no sender line and no thumbnail.
+	c := titled(e, "")
+	c.title, c.body, c.color = title+a.Summary, strings.Join(lines, "\n"), colorSecurity
+	return c
 }
 
 // words changes an action such as review_requested to "review requested".

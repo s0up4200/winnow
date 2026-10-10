@@ -18,6 +18,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // testSecret is the secret that signedDelivery uses. Give each Source in a
@@ -93,6 +94,14 @@ func newHarness(t *testing.T, config string) *harness {
 		select {
 		case rep = <-h.replies:
 		default:
+		}
+		// Like Discord, the fake refuses a Components V2 message when the
+		// URL does not have with_components=true.
+		var flags struct {
+			Flags int `json:"flags"`
+		}
+		if json.Unmarshal(body, &flags) == nil && flags.Flags&isComponentsV2 != 0 && r.URL.Query().Get("with_components") != "true" {
+			rep = reply{status: http.StatusBadRequest, body: `{"message": "Invalid Form Body"}`}
 		}
 		if rep.status == 0 {
 			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
@@ -317,4 +326,76 @@ func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// decodeMessage returns the message in body.
+func decodeMessage(t *testing.T, body []byte) message {
+	t.Helper()
+	var m message
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// displays returns the content of each Text Display in comps, in order, also
+// the ones in Containers and Sections.
+func displays(comps []component) []string {
+	var out []string
+	for _, c := range comps {
+		if c.Type == typeTextDisplay {
+			out = append(out, c.Content)
+		}
+		out = append(out, displays(c.Components)...)
+	}
+	return out
+}
+
+// allText returns the Text Displays of m, joined with newlines.
+func allText(m message) string { return strings.Join(displays(m.Components), "\n") }
+
+// textLength returns the number of characters that Discord counts in m: the
+// Text Displays and the button labels.
+func textLength(comps []component) int {
+	n := 0
+	for _, c := range comps {
+		n += utf8.RuneCountInString(c.Content) + utf8.RuneCountInString(c.Label)
+		n += textLength(c.Components)
+	}
+	return n
+}
+
+// pingOf returns the Ping of m: the Text Display above the Container, or "".
+func pingOf(m message) string {
+	if len(m.Components) > 0 && m.Components[0].Type == typeTextDisplay {
+		return m.Components[0].Content
+	}
+	return ""
+}
+
+// excerptOf returns the body of an Event message: the lines under the
+// heading, and the Text Display under the Section.
+func excerptOf(t *testing.T, m message) string {
+	t.Helper()
+	box := m.Components[len(m.Components)-1]
+	if box.Type != typeContainer {
+		t.Fatalf("last component has type %d, want a Container", box.Type)
+	}
+	var parts []string
+	for _, c := range box.Components {
+		switch c.Type {
+		case typeSection:
+			heading := c.Components[len(c.Components)-1].Content
+			if _, top, ok := strings.Cut(heading, "\n"); ok {
+				parts = append(parts, top)
+			}
+		case typeTextDisplay:
+			if !strings.HasPrefix(c.Content, "## ") && !strings.HasPrefix(c.Content, "-# ") {
+				parts = append(parts, c.Content)
+			} else if _, top, ok := strings.Cut(c.Content, "\n"); ok && strings.HasPrefix(c.Content, "## ") {
+				parts = append(parts, top)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
 }

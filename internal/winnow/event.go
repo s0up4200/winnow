@@ -41,6 +41,8 @@ type Event struct {
 	SenderAvatar string
 	Target       string // login of the requested reviewer or the assignee; only for review_requested and assigned
 	Author       string // login of the author of the pull request or the issue
+	AuthorURL    string // profile of the Author
+	OwnerAvatar  string // avatar of the owner of the repository
 	Tag          string // tag name of a release
 	Push         Push   // push only
 	Alert        *Alert // security Events
@@ -72,6 +74,7 @@ type Alert struct {
 	Ecosystem string // dependabot_alert, for example npm
 	Patched   string // dependabot_alert: the first version with a fix
 	Validity  string // secret_scanning_alert, for example active
+	GHSA      string // dependabot_alert: the GHSA ID of the advisory, or empty
 }
 
 // NameAction returns "<event>.<action>", or only the Event name when the
@@ -177,6 +180,7 @@ type ghPayload struct {
 			} `json:"package"`
 		} `json:"dependency"`
 		SecurityAdvisory struct {
+			GHSAID   string `json:"ghsa_id"`
 			Summary  string `json:"summary"`
 			Severity string `json:"severity"`
 		} `json:"security_advisory"`
@@ -253,6 +257,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		RepoURL:      p.Repository.HTMLURL,
 		SenderURL:    p.Sender.HTMLURL,
 		SenderAvatar: p.Sender.AvatarURL,
+		OwnerAvatar:  p.Repository.Owner.AvatarURL,
 		Tag:          p.Release.TagName,
 	}
 	switch p.Action {
@@ -268,7 +273,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		issue, author = p.Issue.ghTopic, p.Issue.User
 	}
 	if author != nil {
-		e.Author, e.AuthorBot = author.Login, new(isBot(*author))
+		e.Author, e.AuthorURL, e.AuthorBot = author.Login, author.HTMLURL, new(isBot(*author))
 	}
 	var alertURL, report string
 	if a := p.Alert; a != nil {
@@ -282,6 +287,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 			Ecosystem: a.Dependency.Package.Ecosystem,
 			Patched:   a.SecurityVulnerability.FirstPatchedVersion.Identifier,
 			Validity:  a.Validity,
+			GHSA:      a.SecurityAdvisory.GHSAID,
 		}
 	}
 	if a := p.RepositoryAdvisory; a != nil {

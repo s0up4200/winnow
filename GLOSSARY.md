@@ -16,6 +16,10 @@ _Avoid_: event type, kind
 A sender that GitHub marks as a bot, whose login ends in `[bot]`, or whose login is in the bot list of the configuration.
 _Avoid_: automated user, app
 
+**Author**:
+The login that opened the pull request or the issue of an Event. The Author is not always the sender: a review comes from the reviewer.
+_Avoid_: poster, owner, creator
+
 **Rule**:
 A condition on the fields of an Event, written as a matcher in the configuration.
 _Avoid_: filter, expression
@@ -39,6 +43,10 @@ _Avoid_: formatter, template
 **Poster**:
 The name and icon that a Discord message shows as its sender. The Poster is the forge of the Event, for example `GitHub`.
 _Avoid_: bot name, webhook user
+
+**Icon**:
+The image that a release message or a Digest shows for a repository or an owner. The operator sets it in the configuration.
+_Avoid_: avatar, logo
 
 **Fallback message**:
 The generic message for a routed Event that has no Renderer. It names the event, the action, the repository, and the sender. It links to the main object.

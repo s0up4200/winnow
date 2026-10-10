@@ -78,18 +78,17 @@ func TestMentions(t *testing.T) {
 	}
 }
 
-// assertMentions compares the content and allowed_mentions of the message
-// body with want. It ignores the poster and the embeds.
+// assertMentions compares the Ping and the allowed_mentions of the message
+// body with want. The Ping is in "content". It ignores the rest of the
+// message.
 func assertMentions(t *testing.T, body []byte, want string) {
 	t.Helper()
-	var msg map[string]any
-	if err := json.Unmarshal(body, &msg); err != nil {
-		t.Fatal(err)
+	m := decodeMessage(t, body)
+	got := map[string]any{"allowed_mentions": m.AllowedMentions}
+	if ping := pingOf(m); ping != "" {
+		got["content"] = ping
 	}
-	for _, k := range []string{"username", "avatar_url", "embeds"} {
-		delete(msg, k)
-	}
-	b, _ := json.Marshal(msg)
+	b, _ := json.Marshal(got)
 	assertJSON(t, b, want)
 }
 
@@ -128,8 +127,8 @@ func TestCommentMentions(t *testing.T) {
 		if err := json.Unmarshal(r.Body, &msg); err != nil {
 			t.Fatal(err)
 		}
-		if msg.Embeds[0].Description != body {
-			t.Errorf("comment = %q, want %q", msg.Embeds[0].Description, body)
+		if excerptOf(t, msg) != body {
+			t.Errorf("comment = %q, want %q", excerptOf(t, msg), body)
 		}
 	}
 }
@@ -262,7 +261,7 @@ func TestCommentMentionBeyondExcerpt(t *testing.T) {
 		if err := json.Unmarshal(r.Body, &msg); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(msg.Embeds[0].Description, "@octocat") {
+		if strings.Contains(excerptOf(t, msg), "@octocat") {
 			t.Error("excerpt includes the late mention")
 		}
 	}
@@ -327,10 +326,10 @@ func TestCommentMentionLimits(t *testing.T) {
 				for _, id := range wantIDs {
 					wantMentions = append(wantMentions, "<@"+id+">")
 				}
-				if want := strings.Join(wantMentions, " "); msg.Content != want {
-					t.Errorf("content = %q, want %q", msg.Content, want)
+				if want := strings.Join(wantMentions, " "); pingOf(msg) != want {
+					t.Errorf("content = %q, want %q", pingOf(msg), want)
 				}
-				if len(msg.AllowedMentions.Parse) != 0 || msg.Embeds[0].Description != strings.TrimSpace(body.String()) {
+				if len(msg.AllowedMentions.Parse) != 0 || excerptOf(t, msg) != strings.TrimSpace(body.String()) {
 					t.Error("automatic parsing enabled or comment text changed")
 				}
 			}
