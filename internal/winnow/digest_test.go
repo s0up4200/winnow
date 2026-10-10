@@ -459,7 +459,7 @@ func TestDigestCutsLongMessage(t *testing.T) {
 	texts := displays(m.Components)
 	also, footer, _ := strings.Cut(texts[len(texts)-1], "\n")
 	shown := strings.Count(strings.Join(texts, ""), "/pulse)") + strings.Count(also, "](")
-	if want := fmt.Sprintf(" · and **%d** more repositories", 100-shown); shown < 10 || !strings.HasPrefix(also, "-# Also merged: ") || !strings.HasSuffix(also, want) {
+	if want := fmt.Sprintf(" · and **%d** more repositories", 100-shown); shown < 10 || !strings.HasPrefix(also, "-# Also: ") || !strings.HasSuffix(also, want) {
 		t.Errorf("last line = %q, want more than 10 repositories and the end %q", also, want)
 	}
 	if footer != "-# 100 repositories" {
@@ -674,5 +674,24 @@ func TestDigestStoreOpensPathWithURICharacters(t *testing.T) {
 	h.restart(h.config)
 	if _, err := os.Stat(filepath.Join(h.dir, "winnow.db")); err != nil {
 		t.Error(err)
+	}
+}
+
+// The Also line gives a count only to a repository with merges, so that a
+// repository with only forks does not look as if it merged something.
+func TestDigestAlsoCountsMerges(t *testing.T) {
+	h := newHarness(t, digestConfig("weekly", "{}"))
+	h.step(day(9, 29, 0, 0))
+	merged := fixture(t, "github/pull_request_merged")
+	for i := range 7 {
+		body := bytes.ReplaceAll(merged, []byte("autobrr/qui"), fmt.Appendf(nil, "autobrr/repo-%d", i))
+		h.receive(day(10, 1, 12, 0), signedDelivery("github-autobrr", "pull_request", body))
+	}
+	h.receive(day(10, 1, 12, 0), signedDelivery("github-autobrr", "fork", fixture(t, "github/fork")))
+	h.step(day(10, 6, 9, 0))
+	texts := displays(decodeMessage(t, h.waitDiscord().Body).Components)
+	also, _, _ := strings.Cut(texts[len(texts)-1], "\n")
+	if !strings.HasPrefix(also, "-# Also: ") || !strings.Contains(also, ") 1 merged · ") || !strings.HasSuffix(also, "/Hello-World)") {
+		t.Errorf("Also line = %q, want 1 merged for the 7th repository and no count for the fork", also)
 	}
 }

@@ -237,7 +237,7 @@ func summarize(d *Digest, p period, from time.Time, events []Event, icons map[st
 		if i >= topRepos {
 			l := link(name, r.url)
 			if r.merged > 0 {
-				l += " " + strconv.Itoa(r.merged)
+				l += " " + strconv.Itoa(r.merged) + " merged"
 			}
 			rest = append(rest, l)
 			continue
@@ -292,7 +292,7 @@ func fit(room int, totals string, top, rest []string) (string, []string, string)
 		}
 		also := ""
 		if len(r) > 0 {
-			also = "-# Also merged: " + strings.Join(r, " · ") + "\n"
+			also = "-# Also: " + strings.Join(r, " · ") + "\n"
 		}
 		size := utf8.RuneCountInString(totals + strings.Join(t, "") + also)
 		if size <= room {
