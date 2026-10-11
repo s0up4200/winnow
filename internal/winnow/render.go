@@ -27,6 +27,8 @@ const (
 	colorStar   = 0xe3b341
 	// colorSecurity is the color of a security Event.
 	colorSecurity = 0xE36209
+	// colorSponsor is the pink of GitHub Sponsors.
+	colorSponsor = 0xbf3989
 )
 
 // The limits of a message, in characters. Discord counts the text of all
@@ -100,6 +102,8 @@ func draft(e *Event, icons map[string]string) (c card, ping bool) {
 		c = renderAlert(e, "Secret scanning alert")
 	case "repository_advisory":
 		c = renderAlert(e, "Repository advisory")
+	case "sponsorship":
+		c = renderSponsorship(e)
 	}
 	if c.title == "" {
 		return fallback(e), false
@@ -705,6 +709,55 @@ func renderAlert(e *Event, kind string) card {
 	// the card has no sender line and no thumbnail.
 	c := titled(e, "")
 	c.title, c.body, c.color = title+a.Summary, strings.Join(lines, "\n"), colorSecurity
+	return c
+}
+
+// renderSponsorship returns the card of a sponsorship. The heading names the
+// sponsored account, because the Event has no repository. A Private sponsor
+// shows as "A private sponsor". An edited card shows only the new privacy
+// level: the tier can identify a sponsor who changed to private.
+func renderSponsorship(e *Event) card {
+	s := e.Sponsorship
+	if s == nil {
+		return card{}
+	}
+	tier := s.Tier
+	if s.OneTime {
+		tier += " (one-time)"
+	}
+	var kind string
+	lines := []string{"Tier: " + tier}
+	switch e.Action {
+	case "created":
+		kind = "New sponsor"
+	case "cancelled":
+		kind = "Sponsorship cancelled"
+	case "pending_cancellation":
+		kind = "Sponsorship cancellation scheduled"
+	case "tier_changed", "pending_tier_change":
+		kind, lines = "Sponsorship tier changed", []string{"Tier: " + s.FromTier + " → " + tier}
+		if e.Action == "pending_tier_change" {
+			kind = "Sponsorship tier change scheduled"
+		}
+	case "edited":
+		kind, lines = "Sponsorship changed to public", nil
+		if s.Private {
+			kind = "Sponsorship changed to private"
+		}
+	default:
+		return card{}
+	}
+	if date, _, _ := strings.Cut(s.Effective, "T"); date != "" {
+		lines = append(lines, "Takes effect: "+date)
+	}
+	c := card{sender: e.Sender, senderURL: e.SenderURL, thumb: avatar(e), title: "[" + s.Sponsorable + "] " + kind,
+		body: strings.Join(lines, "\n"), color: colorSponsor}
+	switch {
+	case s.Private:
+		c.sender = "A private sponsor"
+	case c.sender == "":
+		c.sender = "A sponsor"
+	}
 	return c
 }
 

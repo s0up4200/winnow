@@ -4,6 +4,14 @@
 One configured webhook endpoint with its own secret, for example the org webhook of `autobrr` on GitHub. Two GitHub orgs are two Sources.
 _Avoid_: origin, input, provider
 
+**Sponsors listing**:
+The GitHub Sponsors profile of one user or organization. Its webhook is a separate Source, and that Source has no Sweep.
+_Avoid_: sponsor page, sponsors profile
+
+**Private sponsor**:
+A sponsor who chose a private sponsorship. Winnow does not show, log, or store the login of a Private sponsor.
+_Avoid_: anonymous sponsor, hidden sponsor
+
 **Event**:
 Winnow's record of one incoming webhook delivery, in one shape for both forges.
 _Avoid_: payload, delivery, message
