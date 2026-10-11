@@ -29,6 +29,10 @@ const testSecret = "test-secret"
 // retries wait a few milliseconds, not seconds.
 const testRetryBase = 10 * time.Millisecond
 
+// testBurstWait is the Burst wait of each server in a test, so that a review
+// request or an assignment posts after a few milliseconds, not seconds.
+const testBurstWait = 20 * time.Millisecond
+
 // testDelivery is the delivery ID that signedDelivery sends.
 const testDelivery = "72d3162e-cc78-11e3-81ab-4c9367dc0958"
 
@@ -144,6 +148,7 @@ func (h *harness) start(config string) {
 		h.t.Fatal(err)
 	}
 	srv.now = func() time.Time { return h.clock }
+	srv.bursts.wait = testBurstWait
 	h.srv, h.handler, h.config = srv, srv, config
 }
 
