@@ -100,9 +100,9 @@ func (b *strictBool) UnmarshalYAML(n *yaml.Node) error {
 }
 
 // pingKindNames holds the kinds of Ping. mentions: true means all of them.
-// review_requested and assigned are also the Event actions that set Target,
+// review_requested and assigned are also the Event actions that set Targets,
 // so render reads the kind of a Target Ping from the action. A sponsorship
-// Event also sets Target, and render reads its kind from the Event name.
+// Event also sets Targets, and render reads its kind from the Event name.
 var pingKindNames = []string{"review_requested", "assigned", "comments", "sponsorship"}
 
 // pingKinds is the set of kinds of Ping that a Sink keeps. Nil keeps no kind.

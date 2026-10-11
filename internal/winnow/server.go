@@ -27,6 +27,7 @@ type Server struct {
 	cfg               *Config
 	log               *slog.Logger
 	outbox            *outbox
+	bursts            *bursts
 	store             *store           // nil when cfg has no Digests and no Sweep
 	now               func() time.Time // the clock; tests set a fixed time
 	tries             tries
@@ -74,6 +75,7 @@ func New(cfg *Config, log *slog.Logger) (*Server, error) {
 		}
 	}
 	s.outbox = newOutbox(cfg, log, sinkFailures)
+	s.bursts = &bursts{wait: burstWait, deliver: s.outbox.deliver, open: map[burstKey]*burst{}}
 	s.Handle("GET /metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	// The pattern has no method, so that an unknown Source gets 404 before
 	// a wrong method gets 405.
@@ -86,14 +88,15 @@ func New(cfg *Config, log *slog.Logger) (*Server, error) {
 	return s, nil
 }
 
-// Shutdown sends the messages left in the Sink queues and returns when the
-// queues are empty. When ctx ends first, the sends stop and each message that
+// Shutdown sends each Burst that waits, then sends the messages left in the
+// Sink queues and returns when the queues are empty. When ctx ends first, the sends stop and each message that
 // is not sent gets a failed delivery line with reason=shutdown. Call it after
 // the HTTP server stops. A handler that still runs after the drain starts
 // does not enqueue its message, but logs it with reason=shutdown. A second
 // call only waits for the workers.
 // Shutdown then closes the store. Stop Run before Shutdown.
 func (s *Server) Shutdown(ctx context.Context) {
+	s.bursts.flush()
 	s.outbox.shutdown(ctx)
 	if s.store != nil {
 		if err := s.store.close(); err != nil {
@@ -164,7 +167,8 @@ const (
 // admit stores e with at as the receive time, and sends it to the Sinks of
 // the first Route that matches it. The Route decision does not change
 // whether winnow stores the Event (ADR 0007). A Backfill goes to the Sinks
-// only when that Route accepts Backfills (ADR 0008).
+// only when that Route accepts Backfills (ADR 0008). A live Event that can
+// join a Burst waits for the rest of its Burst; a Backfill never waits.
 func (s *Server) admit(e *Event, at time.Time, backfill bool) outcome {
 	s.storeEvent(e, at)
 	// Winnow claims a live delivery, so that a Sweep skips it. GitHub can
@@ -194,7 +198,11 @@ func (s *Server) admit(e *Event, at time.Time, backfill bool) outcome {
 		return dropped
 	}
 	s.logDecision(e, matched, route.Name, route.To, extra...)
-	s.outbox.deliver(e, route)
+	if !backfill && joinsBurst(e) {
+		s.bursts.add(e, route)
+	} else {
+		s.outbox.deliver(e, route)
+	}
 	return matched
 }
 

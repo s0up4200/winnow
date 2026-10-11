@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -51,6 +52,10 @@ const shortTitle = 60
 
 // maxPingUsers is the Discord limit of user IDs in allowed_mentions.
 const maxPingUsers = 100
+
+// maxTargetPings is the largest number of Targets that one card pings. A
+// Burst seldom names more people.
+const maxTargetPings = 10
 
 // maxExcerptBody is the number of bytes of a body that excerpt reads. Only
 // 4000 characters reach Discord, so a larger body only costs memory.
@@ -114,8 +119,8 @@ func draft(e *Event, icons map[string]string) (c card, ping bool) {
 
 // render turns the card c of e from draft into one Discord message for one
 // Sink. The Poster of each message is the forge of the Event. The message
-// pings the target of e when the User map holds the target and the target
-// is not the sender. New comments also ping the mapped logins that mentioned
+// pings each Target of e that the User map holds and that is not the
+// sender, once for each user ID and at most maxTargetPings users. New comments also ping the mapped logins that mentioned
 // returns. Each Ping needs its kind in p. A Fallback message, where ping is
 // false, never pings.
 func render(e *Event, c card, ping bool, p pings, mentioned func() []string) message {
@@ -128,9 +133,16 @@ func render(e *Event, c card, ping bool, p pings, mentioned func() []string) mes
 	if e.Name == "sponsorship" {
 		kind = e.Name
 	}
-	if id, ok := p.users[strings.ToLower(e.Target)]; ok && ping && p.kinds[kind] && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
-		mentions = "<@" + id + ">"
-		msg.AllowedMentions.Users = []string{id}
+	for _, t := range e.Targets {
+		id, ok := p.users[strings.ToLower(t)]
+		if !ok || !ping || !p.kinds[kind] || strings.EqualFold(t, e.Sender) || slices.Contains(msg.AllowedMentions.Users, id) || len(msg.AllowedMentions.Users) == maxTargetPings {
+			continue
+		}
+		if mentions != "" {
+			mentions += " "
+		}
+		mentions += "<@" + id + ">"
+		msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
 	}
 	if ping && p.kinds["comments"] && len(p.users) > 0 {
 		switch e.NameAction() {
@@ -598,15 +610,25 @@ func renderIssue(e *Event) card {
 	return c
 }
 
-// addSubject replaces the body of c with a line that names the Subject of a
+// addSubject replaces the body of c with a line that names the Subjects of a
 // review request, a removed review request, an assignment, or an
-// unassignment. These actions show no excerpt. An Event with no Subject
-// keeps its body.
+// unassignment, for example "A, B and C". These actions show no excerpt. An
+// Event with no Subject keeps its body.
 func addSubject(c *card, e *Event) {
-	if e.Subject == "" {
+	if len(e.Subjects) == 0 {
 		return
 	}
-	name := "**" + link(e.Subject, e.SubjectURL) + "**"
+	var name string
+	for i, s := range e.Subjects {
+		switch {
+		case i == 0:
+		case i == len(e.Subjects)-1:
+			name += " and "
+		default:
+			name += ", "
+		}
+		name += "**" + link(s.Name, s.URL) + "**"
+	}
 	switch e.Action {
 	case "review_requested":
 		c.body = "A review from " + name + " has been requested"
