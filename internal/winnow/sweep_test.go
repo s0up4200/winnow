@@ -1,6 +1,7 @@
 package winnow
 
 import (
+	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -22,9 +23,10 @@ type fakeGitHub struct {
 	mu       sync.Mutex
 	attempts []fakeAttempt // newest first
 	perPage  int
-	status   int           // when not 0, each request gets this status
-	fail     map[int64]int // the status of the detail request of an attempt ID
-	requests []string      // the path and query of each request
+	status   int                 // when not 0, each request gets this status
+	fail     map[int64]int       // the status of the detail request of an attempt ID
+	requests []string            // the path and query of each request
+	hold     func(*http.Request) // when not nil, each request calls hold first
 }
 
 // fakeAttempt is one delivery attempt that the fake GitHub lists.
@@ -66,6 +68,9 @@ func (g *fakeGitHub) count(part string) int {
 }
 
 func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
+	if g.hold != nil {
+		g.hold(r)
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.requests = append(g.requests, r.URL.RequestURI())
@@ -479,6 +484,52 @@ func TestSweepAlertsOnFailureAndRecovery(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestSweepStopSendsNoAlert(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run("failed before="+strconv.FormatBool(failed), func(t *testing.T) {
+			h := newHarness(t, sweepConfig)
+			var want []string
+			if failed {
+				h.gh.status = http.StatusServiceUnavailable
+				h.step(day(10, 1, 11, 0))
+				h.gh.status = 0
+				want = []string{"Sweep of github-autobrr failed", "Sweep of github-autobrr works again"}
+			}
+			// The fake holds the request until winnow stops.
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			h.gh.hold = func(r *http.Request) { cancel(); <-r.Context().Done() }
+			h.clock = day(10, 1, 12, 0)
+			h.srv.step(ctx)
+			h.gh.hold = nil
+			if n := len(h.linesWith("sweep failed")); n != len(want)/2 {
+				t.Errorf("got %d sweep failed lines, want %d", n, len(want)/2)
+			}
+			before := h.gh.count("/deliveries?")
+			h.step(day(10, 1, 12, 1))
+			if h.gh.count("/deliveries?") == before {
+				t.Fatal("the step after the stop did not sweep")
+			}
+			if titles := alertTitles(t, h.drain()); !slices.Equal(titles, want) {
+				t.Errorf("alerts = %q, want %q", titles, want)
+			}
+		})
+	}
+}
+
+func TestSweepStopBeforeDigestWarns(t *testing.T) {
+	h := newHarness(t, sweepConfig)
+	h.step(day(9, 30, 0, 0))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	h.gh.hold = func(r *http.Request) { cancel(); <-r.Context().Done() }
+	h.clock = day(10, 2, 9, 0)
+	h.srv.step(ctx)
+	if got := h.linesWith("digest can count too few Events"); len(got) != 1 {
+		t.Errorf("got %d warning lines, want 1", len(got))
 	}
 }
 
