@@ -170,7 +170,7 @@ func layout(c card, ping string) []component {
 		head = append(head, display("-# "+link(c.sender, c.senderURL)))
 		used += utf8.RuneCountInString(head[0].Content)
 	}
-	heading := "## " + link(cut(c.title, maxTitle), c.url)
+	heading := "### " + link(cut(c.title, maxTitle), c.url)
 	used += utf8.RuneCountInString(heading) + 1 // 1 for the newline before the body
 	for _, b := range c.buttons {
 		used += utf8.RuneCountInString(b.label)
