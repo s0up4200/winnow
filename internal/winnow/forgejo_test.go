@@ -43,6 +43,10 @@ func TestForgejoRenderers(t *testing.T) {
 	opened := fixture(t, "forgejo/pull_request-opened")
 	// A Forgejo pull request has no Checks button and no list buttons.
 	diff := buttonRowJSON("Diff", pull5+"/files")
+	compare := func(from, to string) string {
+		return buttonRowJSON("Compare", winnowTest+"/compare/"+from+"..."+to)
+	}
+	const c1, c3 = "1111111111111111111111111111111111111111", "3333333333333333333333333333333333333333"
 	// The Author alice is not the sender soup, so a comment or a review
 	// gets the Author button.
 	review := buttonRowJSON("PR", pull5, "Diff", pull5+"/files", "alice", "https://example.invalid/alice")
@@ -63,18 +67,19 @@ func TestForgejoRenderers(t *testing.T) {
 		{"push", "push", "push", fixture(t, "forgejo/push"), "push", container(0,
 			section(aliceLine, "### [[soup/winnow-test:main] 2 new commits]("+winnowTest+"/compare/1111111111111111111111111111111111111111...3333333333333333333333333333333333333333)\n"+
 				"[`2222222`]("+winnowTest+"/commit/2222222222222222222222222222222222222222) Fix panic on empty config\n"+
-				"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test", aliceThumb))},
+				"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test", aliceThumb), compare(c1, c3))},
 		{"push with more commits than the payload holds", "push", "push",
 			bytes.Replace(fixture(t, "forgejo/push"), []byte(`"total_commits": 2`), []byte(`"total_commits": 20`), 1), "push", container(0,
 				section(aliceLine, "### [[soup/winnow-test:main] 20 new commits]("+winnowTest+"/compare/1111111111111111111111111111111111111111...3333333333333333333333333333333333333333)\n"+
 					"[`2222222`]("+winnowTest+"/commit/2222222222222222222222222222222222222222) Fix panic on empty config\n"+
-					"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test", aliceThumb))},
+					"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test", aliceThumb), compare(c1, c3))},
 		// The commit author is not the pusher, so the commit line names it.
 		{"test delivery is a normal push", "push", "push", fixture(t, "forgejo/push-test-delivery"), "push", container(0,
 			section(soupLine, "### [[soup/winnow-test:main] 1 new commit]("+winnowTest+"/compare/3333333333333333333333333333333333333333...3333333333333333333333333333333333333333)\n"+
-				"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test - Alice", soupThumb))},
+				"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test - Alice", soupThumb), compare(c3, c3))},
 		{"pull request opened", "pull_request", "pull_request", opened, "pull_request.opened", container(2066493,
-			section(aliceLine, "### [[soup/winnow-test] Pull request opened: #5 Add Forgejo support]("+pull5+")\nParses X-Forgejo-Event-Type.", aliceThumb), diff)},
+			section(aliceLine, "### [[soup/winnow-test] Pull request opened: #5 Add Forgejo support]("+pull5+")\nParses X-Forgejo-Event-Type.", aliceThumb),
+			buttonRowJSON("PR", pull5, "Diff", pull5+"/files"))},
 		{"synchronized becomes synchronize", "pull_request", "pull_request_sync", fixture(t, "forgejo/pull_request_sync-synchronized"), "pull_request.synchronize", container(0,
 			section(aliceLine, "### [[soup/winnow-test] Pull request synchronize: #5 Add Forgejo support]("+pull5+")", aliceThumb), diff)},
 		{"pull request merged", "pull_request", "pull_request", fixture(t, "forgejo/pull_request-closed-merged"), "pull_request.closed", container(8540383,
@@ -92,9 +97,11 @@ func TestForgejoRenderers(t *testing.T) {
 				section(aliceLine, "### [[soup/winnow-test] Pull request assigned: #5 Add Forgejo support]("+pull5+")", aliceThumb), diff)},
 		{"label_updated stays as it is", "pull_request", "pull_request_label", fixture(t, "forgejo/pull_request_label-label_updated"), "pull_request.label_updated", container(0,
 			section(soupLine, "### [[soup/winnow-test] Pull request label updated: #5 Add Forgejo support]("+pull5+")", soupThumb), diff)},
-		// Forgejo gets no list buttons, so an issue has no buttons.
+		// Forgejo gets no list buttons, so a new issue has only the Issue
+		// button.
 		{"issue opened", "issues", "issues", fixture(t, "forgejo/issues-opened"), "issues.opened", container(2066493,
-			section(aliceLine, "### [[soup/winnow-test] Issue opened: #3 Crash on empty config]("+winnowTest+"/issues/3)\nSteps:\n1. Start with an empty file.\n2. It panics.", aliceThumb))},
+			section(aliceLine, "### [[soup/winnow-test] Issue opened: #3 Crash on empty config]("+winnowTest+"/issues/3)\nSteps:\n1. Start with an empty file.\n2. It panics.", aliceThumb),
+			buttonRowJSON("Issue", winnowTest+"/issues/3"))},
 		{"comment on an issue", "issue_comment", "issue_comment", fixture(t, "forgejo/issue_comment-created"), "issue_comment.created", container(0,
 			section(soupLine, "### [[soup/winnow-test] New comment on issue: #3 Crash on empty config]("+winnowTest+"/issues/3#issuecomment-900)\nThanks, I can reproduce it.", soupThumb),
 			buttonRowJSON("Issue", winnowTest+"/issues/3", "alice", "https://example.invalid/alice"))},
@@ -108,7 +115,8 @@ func TestForgejoRenderers(t *testing.T) {
 			section(soupLine, "### [[soup/winnow-test] Review commented: #5 Add Forgejo support]("+pull5+")\nReview text (commented).", soupThumb), review)},
 		// A Forgejo release keeps the identicon of the sender.
 		{"release published", "release", "release", fixture(t, "forgejo/release-published"), "release.published", container(0,
-			section(soupLine, "### [[soup/winnow-test] Release published: v1.0.0]("+winnowTest+"/releases/tag/v1.0.0)\nFirst release.", soupThumb))},
+			section(soupLine, "### [[soup/winnow-test] Release published: v1.0.0]("+winnowTest+"/releases/tag/v1.0.0)\nFirst release.", soupThumb),
+			buttonRowJSON("Release", winnowTest+"/releases/tag/v1.0.0"))},
 		{"release updated becomes edited", "release", "release", fixture(t, "forgejo/release-updated"), "release.edited", container(0,
 			section(soupLine, "### [[soup/winnow-test] Release edited: v1.0.0]("+winnowTest+"/releases/tag/v1.0.0)", soupThumb))},
 	}
