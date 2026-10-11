@@ -395,7 +395,7 @@ func excerptOf(t *testing.T, m message) string {
 			headed = true
 		case typeTextDisplay:
 			switch {
-			case strings.HasPrefix(c.Content, "-# "):
+			case !headed && strings.HasPrefix(c.Content, "**"): // the sender line
 			case !headed:
 				if _, top, ok := strings.Cut(c.Content, "\n"); ok {
 					parts = append(parts, top)

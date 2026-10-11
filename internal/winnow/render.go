@@ -148,7 +148,7 @@ func render(e *Event, c card, ping bool, p pings, mentioned func() []string) mes
 // card is the content of one Event message, before the layout.
 type card struct {
 	color             int
-	sender, senderURL string // the small line over the heading, or empty
+	sender, senderURL string // the bold line over the heading, or empty
 	thumb             string // the image beside the heading, or empty
 	title, url        string // the heading and its link
 	body              string // the excerpt, not cut yet
@@ -167,7 +167,7 @@ func layout(c card, ping string) []component {
 	var head []component
 	used := utf8.RuneCountInString(ping)
 	if c.sender != "" {
-		head = append(head, display("-# "+link(c.sender, c.senderURL)))
+		head = append(head, display("**"+link(c.sender, c.senderURL)+"**"))
 		used += utf8.RuneCountInString(head[0].Content)
 	}
 	heading := "### " + link(cut(c.title, maxTitle), c.url)

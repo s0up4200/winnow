@@ -26,9 +26,9 @@ const forgejoPoster = `"username": "Forgejo", "avatar_url": "https://forgejo.org
 // fixtures. Each Forgejo sender gets an identicon, because Discord cannot
 // load an avatar from a Forgejo that is not public.
 const (
-	soupLine   = `{"type": 10, "content": "-# [soup](https://example.invalid/soup)"}`
+	soupLine   = `{"type": 10, "content": "**[soup](https://example.invalid/soup)**"}`
 	soupThumb  = `{"type": 11, "media": {"url": "https://www.gravatar.com/avatar/9014fac8184d7ba9e1dcd80b8c1e1aa2906af8a01fc1e6e9092e575eabf7b80d?d=identicon&s=128"}}`
-	aliceLine  = `{"type": 10, "content": "-# [alice](https://example.invalid/alice)"}`
+	aliceLine  = `{"type": 10, "content": "**[alice](https://example.invalid/alice)**"}`
 	aliceThumb = `{"type": 11, "media": {"url": "https://www.gravatar.com/avatar/2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90?d=identicon&s=128"}}`
 )
 

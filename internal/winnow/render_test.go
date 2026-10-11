@@ -28,7 +28,7 @@ const githubPoster = `"username": "GitHub", "avatar_url": "https://avatars.githu
 
 // The sender line and the avatar of the sender in most GitHub fixtures.
 const (
-	codertocatLine  = `{"type": 10, "content": "-# [Codertocat](https://example.invalid/Codertocat)"}`
+	codertocatLine  = `{"type": 10, "content": "**[Codertocat](https://example.invalid/Codertocat)**"}`
 	codertocatThumb = `{"type": 11, "media": {"url": "https://example.invalid/u/21031067?v=4"}}`
 )
 
@@ -87,7 +87,7 @@ func TestRenderers(t *testing.T) {
 			section(codertocatLine, "### [[Codertocat/Hello-World] Pull request opened: #2 Update the README with new information.]("+pull2+")\nThis is a pretty simple change that we need to pull into master.", codertocatThumb),
 			buttonRowJSON("Diff", pull2+"/files", "Checks", pull2+"/checks", "PRs by Codertocat", prs))},
 		{"pull request merged", "pull_request", "pull_request_merged", container(8540383,
-			section(`{"type": 10, "content": "-# [s0up4200](https://github.example.invalid/s0up4200)"}`,
+			section(`{"type": 10, "content": "**[s0up4200](https://github.example.invalid/s0up4200)**"}`,
 				"### [[autobrr/qui] Pull request merged: #43 Add cross-seed search](https://github.example.invalid/autobrr/qui/pull/43)",
 				`{"type": 11, "media": {"url": "https://avatars.example.invalid/u/3001"}}`),
 			buttonRowJSON("Diff", "https://github.example.invalid/autobrr/qui/pull/43/files", "Checks", "https://github.example.invalid/autobrr/qui/pull/43/checks",
@@ -122,7 +122,7 @@ func TestRenderers(t *testing.T) {
 		{"release with no name", "release", "release_published", container(0,
 			section(codertocatLine, "### [[Codertocat/Hello-World] Release published: 0.0.1]("+hello+"/releases/tag/0.0.1)", codertocatThumb))},
 		{"fork", "fork", "fork", container(0,
-			section(`{"type": 10, "content": "-# [Octocoders](https://example.invalid/Octocoders)"}`,
+			section(`{"type": 10, "content": "**[Octocoders](https://example.invalid/Octocoders)**"}`,
 				"### [[Codertocat/Hello-World] Fork created: Octocoders/Hello-World](https://example.invalid/Octocoders/Hello-World)",
 				`{"type": 11, "media": {"url": "https://example.invalid/u/38302899?v=4"}}`))},
 		{"star", "watch", "watch_started", container(14922561,

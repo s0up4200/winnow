@@ -16,12 +16,12 @@ func TestSecurityRenderers(t *testing.T) {
 		// The Advisory button links to the GHSA ID on the GitHub host of the
 		// repository.
 		{"dependabot_alert", "github/dependabot_alert_created", container(14901769,
-			section(`{"type": 10, "content": "-# github"}`, "### [[autobrr/qui] Dependabot alert created: #20 semver vulnerable to Regular Expression Denial of Service](https://github.example.invalid/autobrr/qui/security/dependabot/20)\nSeverity: medium\nPackage: semver (npm)\nPatched in: 7.5.2", githubThumb),
+			section(`{"type": 10, "content": "**github**"}`, "### [[autobrr/qui] Dependabot alert created: #20 semver vulnerable to Regular Expression Denial of Service](https://github.example.invalid/autobrr/qui/security/dependabot/20)\nSeverity: medium\nPackage: semver (npm)\nPatched in: 7.5.2", githubThumb),
 			buttonRowJSON("Advisory", "https://github.example.invalid/advisories/GHSA-c2qf-rxjj-qqgw"))},
 		{"code_scanning_alert", "github/code_scanning_alert_created", container(14901769,
-			section(`{"type": 10, "content": "-# github"}`, "### [[autobrr/qui] Code scanning alert created: #10 Database query built from user-controlled sources](https://github.example.invalid/autobrr/qui/security/code-scanning/10)\nSeverity: error", githubThumb))},
+			section(`{"type": 10, "content": "**github**"}`, "### [[autobrr/qui] Code scanning alert created: #10 Database query built from user-controlled sources](https://github.example.invalid/autobrr/qui/security/code-scanning/10)\nSeverity: error", githubThumb))},
 		{"secret_scanning_alert", "github/secret_scanning_alert_created", container(14901769,
-			section(`{"type": 10, "content": "-# s0up4200"}`, "### [[autobrr/qui] Secret scanning alert created: #3 GitHub Personal Access Token](https://github.example.invalid/autobrr/qui/security/secret-scanning/3)\nValidity: active",
+			section(`{"type": 10, "content": "**s0up4200**"}`, "### [[autobrr/qui] Secret scanning alert created: #3 GitHub Personal Access Token](https://github.example.invalid/autobrr/qui/security/secret-scanning/3)\nValidity: active",
 				`{"type": 11, "media": {"url": "https://www.gravatar.com/avatar/173ba346611228577922bcfaeed4ef078667a47712c5b759da97e4e527820a55?d=identicon&s=128"}}`))},
 		// The payload has no sender, so the message has no sender line and
 		// no thumbnail.
