@@ -87,7 +87,7 @@ The sources are the schemas `webhooks_sponsorship` and `webhook-sponsorship-*` i
 
 Effect on winnow:
 
-- `parseEvent` reads `repository`. Thus `Repo`, `Owner`, `RepoURL`, and `URL` are empty for a sponsorship. Only these Rule fields can match it: `event:`, `action:`, `source:`, `forge:`, and `sender:`.
+- `parseEvent` reads `repository`. Thus `Repo`, `Owner`, `RepoURL`, and `URL` are empty for a sponsorship. Only these Rule fields can match it: `event:`, `action:`, `source:`, `forge:`, `sender:`, and `sender_bot:`.
 - The Renderer must accept a null `sponsor`. It can use `sender` in place of the sponsor only when the sponsorship is public.
 - The Digest code already skips the repository line for an Event with an empty `Repo`.
 
