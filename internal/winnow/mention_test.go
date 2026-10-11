@@ -53,6 +53,8 @@ func TestMentions(t *testing.T) {
 		{"no ping for another action", "pull_request", func(t *testing.T) []byte {
 			return bytes.Replace(reviewRequested(t), []byte(`"review_requested"`), []byte(`"edited"`), 1)
 		}, false},
+		{"no ping for a removed review request", "pull_request", func(t *testing.T) []byte { return fixture(t, "github/pull_request_review_request_removed") }, false},
+		{"no ping for an unassignment", "issues", func(t *testing.T) []byte { return fixture(t, "github/issues_unassigned") }, false},
 		{"a Fallback message never pings", "pull_request_review_thread", reviewRequested, false},
 		// The payload has no alert, so the Renderer gives the Fallback message.
 		{"a security Event with no alert never pings", "code_scanning_alert", assigned("octocat"), false},
@@ -75,6 +77,26 @@ func TestMentions(t *testing.T) {
 			assertMentions(t, got["ping"], want)
 			assertMentions(t, got["quiet"], `{"allowed_mentions": {"parse": []}}`)
 		})
+	}
+}
+
+// The body line names the reviewer also on the card that pings the
+// reviewer, because the body is the same for each Sink.
+func TestSubjectStaysWhenPinged(t *testing.T) {
+	h := newHarness(t, mentionConfig)
+	if got := h.do(signedDelivery("github-autobrr", "pull_request", fixture(t, "github/pull_request_review_requested"))).Code; got != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", got)
+	}
+	want := "A review from **[octocat](https://example.invalid/octocat)** has been requested"
+	for range 2 {
+		r := h.waitDiscord()
+		m := decodeMessage(t, r.Body)
+		if r.Sink == "ping" && pingOf(m) != "<@111>" {
+			t.Errorf("sink ping got Ping %q, want <@111>", pingOf(m))
+		}
+		if got := excerptOf(t, m); got != want {
+			t.Errorf("sink %s body = %q, want %q", r.Sink, got, want)
+		}
 	}
 }
 

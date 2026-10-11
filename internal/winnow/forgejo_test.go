@@ -46,6 +46,12 @@ func TestForgejoRenderers(t *testing.T) {
 	// The Author alice is not the sender soup, so a comment or a review
 	// gets the Author button.
 	review := buttonRowJSON("PR", pull5, "Diff", pull5+"/files", "alice", "https://example.invalid/alice")
+	// withReviewer changes the pull request to a review request with the
+	// action, for the reviewer soup.
+	withReviewer := func(action string) []byte {
+		b := bytes.Replace(opened, []byte(`"action": "opened"`), []byte(`"action": "`+action+`"`), 1)
+		return bytes.Replace(b, []byte(`"requested_reviewer": null`), []byte(`"requested_reviewer": {"id": 1, "login": "soup", "html_url": "https://example.invalid/soup"}`), 1)
+	}
 	tests := []struct {
 		name   string
 		event  string // X-Forgejo-Event
@@ -76,6 +82,14 @@ func TestForgejoRenderers(t *testing.T) {
 		{"review request stays a pull request Event", "pull_request", "pull_request_review_request",
 			bytes.Replace(opened, []byte(`"action": "opened"`), []byte(`"action": "review_requested"`), 1), "pull_request.review_requested", container(0,
 				section(aliceLine, "### [[soup/winnow-test] Pull request review requested: #5 Add Forgejo support]("+pull5+")", aliceThumb), diff)},
+		{"review request names the reviewer", "pull_request", "pull_request_review_request", withReviewer("review_requested"), "pull_request.review_requested", container(0,
+			section(aliceLine, "### [[soup/winnow-test] Pull request review requested: #5 Add Forgejo support]("+pull5+")\nA review from **[soup](https://example.invalid/soup)** has been requested", aliceThumb), diff)},
+		{"removed review request names the reviewer", "pull_request", "pull_request_review_request", withReviewer("review_request_removed"), "pull_request.review_request_removed", container(0,
+			section(aliceLine, "### [[soup/winnow-test] Pull request review request removed: #5 Add Forgejo support]("+pull5+")\nA review from **[soup](https://example.invalid/soup)** is no longer requested", aliceThumb), diff)},
+		// Forgejo sends no assignee, so the card has no body line.
+		{"assignment has no body line", "pull_request", "pull_request_assign",
+			bytes.Replace(opened, []byte(`"action": "opened"`), []byte(`"action": "assigned"`), 1), "pull_request.assigned", container(0,
+				section(aliceLine, "### [[soup/winnow-test] Pull request assigned: #5 Add Forgejo support]("+pull5+")", aliceThumb), diff)},
 		{"label_updated stays as it is", "pull_request", "pull_request_label", fixture(t, "forgejo/pull_request_label-label_updated"), "pull_request.label_updated", container(0,
 			section(soupLine, "### [[soup/winnow-test] Pull request label updated: #5 Add Forgejo support]("+pull5+")", soupThumb), diff)},
 		// Forgejo gets no list buttons, so an issue has no buttons.

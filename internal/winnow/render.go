@@ -594,7 +594,29 @@ func cells(row string) string {
 func renderIssue(e *Event) card {
 	c := titled(e, "Issue "+e.Action)
 	c.color = stateColor(e.Action)
+	addSubject(&c, e)
 	return c
+}
+
+// addSubject replaces the body of c with a line that names the Subject of a
+// review request, a removed review request, an assignment, or an
+// unassignment. These actions show no excerpt. An Event with no Subject
+// keeps its body.
+func addSubject(c *card, e *Event) {
+	if e.Subject == "" {
+		return
+	}
+	name := "**" + link(e.Subject, e.SubjectURL) + "**"
+	switch e.Action {
+	case "review_requested":
+		c.body = "A review from " + name + " has been requested"
+	case "review_request_removed":
+		c.body = "A review from " + name + " is no longer requested"
+	case "assigned":
+		c.body = "Assigned to " + name
+	case "unassigned":
+		c.body = "Unassigned from " + name
+	}
 }
 
 // renderPullRequest shows a merge as "merged". A merge is the action closed
@@ -606,6 +628,7 @@ func renderPullRequest(e *Event) card {
 	}
 	c := titled(e, "Pull request "+kind)
 	c.color = color
+	addSubject(&c, e)
 	return c
 }
 

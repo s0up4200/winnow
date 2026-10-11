@@ -41,6 +41,8 @@ type Event struct {
 	SenderURL    string
 	SenderAvatar string
 	Target       string       // login to ping: the requested reviewer, the assignee, or the sponsored account
+	Subject      string       // review_requested, review_request_removed, assigned, unassigned: the reviewer, the team as org/slug, or the assignee
+	SubjectURL   string       // profile of the Subject, or the page of the team
 	Author       string       // login of the author of the pull request or the issue
 	AuthorURL    string       // profile of the Author
 	OwnerAvatar  string       // avatar of the owner of the repository
@@ -235,9 +237,14 @@ type ghPayload struct {
 		Severity    string `json:"severity"`
 	} `json:"repository_advisory"`
 	// Forgejo also sets requested_reviewer on a review, so winnow reads it
-	// only for review_requested. A Forgejo assigned has no assignee.
+	// only for a review request. A Forgejo assigned has no assignee. GitHub
+	// sends requested_team in place of requested_reviewer for a team.
 	RequestedReviewer ghUser `json:"requested_reviewer"`
-	Assignee          ghUser `json:"assignee"`
+	RequestedTeam     struct {
+		Slug    string `json:"slug"`
+		HTMLURL string `json:"html_url"`
+	} `json:"requested_team"`
+	Assignee ghUser `json:"assignee"`
 }
 
 // forgejoReviews maps the X-Forgejo-Event-Type of a Forgejo review to the
@@ -293,11 +300,21 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		OwnerAvatar:  p.Repository.Owner.AvatarURL,
 		Tag:          p.Release.TagName,
 	}
+	// Only a new request or a new assignment pings, and never a team.
 	switch p.Action {
-	case "review_requested":
-		e.Target = p.RequestedReviewer.Login
-	case "assigned":
-		e.Target = p.Assignee.Login
+	case "review_requested", "review_request_removed":
+		e.Subject, e.SubjectURL = p.RequestedReviewer.Login, p.RequestedReviewer.HTMLURL
+		if t := p.RequestedTeam; e.Subject == "" && t.Slug != "" {
+			e.Subject, e.SubjectURL = e.Owner+"/"+t.Slug, t.HTMLURL
+		}
+		if p.Action == "review_requested" {
+			e.Target = p.RequestedReviewer.Login
+		}
+	case "assigned", "unassigned":
+		e.Subject, e.SubjectURL = p.Assignee.Login, p.Assignee.HTMLURL
+		if p.Action == "assigned" {
+			e.Target = p.Assignee.Login
+		}
 	}
 	var issue ghTopic
 	author := p.PullRequest.User
