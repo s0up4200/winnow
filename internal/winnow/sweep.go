@@ -31,7 +31,8 @@ type sweeper struct {
 	client *http.Client
 	last   time.Time // the time of the last Sweep that worked
 	tried  time.Time // the time of the last Sweep
-	err    error     // the error of the last Sweep; not nil while the Sweep fails
+	tryErr error     // the error of the Sweep at tried
+	err    error     // the error of the last Sweep that winnow did not stop; not nil while the Sweep fails
 }
 
 // delivery is one attempt in the delivery list of a GitHub hook, or the
@@ -136,20 +137,30 @@ func (s *Server) sweepDue(ctx context.Context, now time.Time, all bool) error {
 	var errs []error
 	for _, w := range s.sweepers {
 		if !w.tried.Equal(now) && (all || now.Sub(w.last) >= sweepEvery) {
-			w.tried, w.err = now, s.sweep(ctx, w, now)
+			w.tried, w.tryErr = now, s.sweep(ctx, w, now)
 		}
 		if w.tried.Equal(now) {
-			errs = append(errs, w.err)
+			errs = append(errs, w.tryErr)
 		}
 	}
 	return errors.Join(errs...)
 }
 
 // sweep runs the Sweep of w, logs a failure, and sends an alert when the
-// Sweep starts to fail and when it works again.
+// Sweep starts to fail and when it works again. It sets w.err, but not when
+// winnow stops during the Sweep.
 func (s *Server) sweep(ctx context.Context, w *sweeper, now time.Time) error {
 	n, err := s.sweepOnce(ctx, w, now)
-	if err != nil {
+	// A Sweep can handle deliveries before it fails or stops. No later Sweep
+	// counts them, so the line comes also after a failure or a stop.
+	if n > 0 {
+		s.log.Info("swept", "source", w.source, "backfills", n)
+	}
+	switch {
+	case err != nil && ctx.Err() != nil:
+		// winnow stops. A stop is not a failure, so w.err stays as it was.
+		return err
+	case err != nil:
 		// A 401 or a 404 can mean a token, webhook, or access problem.
 		log := s.log.Warn
 		if se, ok := errors.AsType[*statusError](err); ok && (se.status == http.StatusUnauthorized || se.status == http.StatusNotFound) {
@@ -163,17 +174,13 @@ func (s *Server) sweep(ctx context.Context, w *sweeper, now time.Time) error {
 			}
 			s.alert("Sweep of "+w.source+" failed", desc)
 		}
-	} else {
+	default:
 		w.last = now
 		if w.err != nil {
 			s.alert("Sweep of "+w.source+" works again", "")
 		}
 	}
-	// A Sweep that fails can handle deliveries before the failure. No later
-	// Sweep counts them, so the line comes also after a failure.
-	if n > 0 {
-		s.log.Info("swept", "source", w.source, "backfills", n)
-	}
+	w.err = err
 	return err
 }
 
