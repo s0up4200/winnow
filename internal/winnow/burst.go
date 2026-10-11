@@ -14,8 +14,9 @@ const burstWait = 5 * time.Second
 // burstKey identifies a Burst: one action, by one sender, on one pull
 // request or issue, that one Route sends.
 type burstKey struct {
-	source, repo, name, action, sender, route string
-	number                                    int
+	source, repo, name, action, sender string
+	number                             int
+	route                              *Route // two Routes can have the same name
 }
 
 // burst is a Burst that waits: the first Event, into which the later Events
@@ -58,7 +59,7 @@ func (b *bursts) add(e *Event, route *Route) {
 		b.deliver(e, route)
 		return
 	}
-	k := burstKey{source: e.Source, repo: e.Repo, name: e.Name, action: e.Action, sender: e.Sender, route: route.Name, number: e.Number}
+	k := burstKey{source: e.Source, repo: e.Repo, name: e.Name, action: e.Action, sender: e.Sender, number: e.Number, route: route}
 	if g, ok := b.open[k]; ok {
 		g.e.merge(e)
 		return

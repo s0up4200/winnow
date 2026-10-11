@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json/v2"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -118,6 +119,40 @@ func TestBurstKey(t *testing.T) {
 		if !found {
 			t.Errorf("no card %q in %q", want, bodies)
 		}
+	}
+}
+
+// Two Routes with the same name start two cards.
+func TestBurstKeyRoute(t *testing.T) {
+	h := newHarness(t, `
+sources:
+  github-autobrr: { secret: test-secret }
+sinks:
+  drafts: { discord: https://discord.example.invalid/api/webhooks/1/token }
+  ready: { discord: https://discord.example.invalid/api/webhooks/2/token }
+routes:
+  - name: reviews
+    match: { draft: true }
+    to: [drafts]
+  - name: reviews
+    match: {}
+    to: [ready]
+`)
+	h.srv.bursts.wait = 300 * time.Millisecond
+	h.accept("pull_request", bytes.Replace(reviewer(t, "octocat", ""), []byte(`"draft":false`), []byte(`"draft":true`), 1))
+	h.accept("pull_request", reviewer(t, "hubot", ""))
+	got := map[string]string{}
+	for range 2 {
+		r := h.waitDiscord()
+		got[r.Sink] = excerptOf(t, decodeMessage(t, r.Body))
+	}
+	h.noMoreDiscord(400 * time.Millisecond)
+	want := map[string]string{
+		"drafts": "A review from **[octocat](https://example.invalid/octocat)** has been requested",
+		"ready":  "A review from **[hubot](https://example.invalid/hubot)** has been requested",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("cards = %q, want %q", got, want)
 	}
 }
 
