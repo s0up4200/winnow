@@ -26,9 +26,9 @@ const forgejoPoster = `"username": "Forgejo", "avatar_url": "https://forgejo.org
 // fixtures. Each Forgejo sender gets an identicon, because Discord cannot
 // load an avatar from a Forgejo that is not public.
 const (
-	soupLine   = `{"type": 10, "content": "-# [soup](https://example.invalid/soup)"}`
+	soupLine   = `{"type": 10, "content": "**[soup](https://example.invalid/soup)**"}`
 	soupThumb  = `{"type": 11, "media": {"url": "https://www.gravatar.com/avatar/9014fac8184d7ba9e1dcd80b8c1e1aa2906af8a01fc1e6e9092e575eabf7b80d?d=identicon&s=128"}}`
-	aliceLine  = `{"type": 10, "content": "-# [alice](https://example.invalid/alice)"}`
+	aliceLine  = `{"type": 10, "content": "**[alice](https://example.invalid/alice)**"}`
 	aliceThumb = `{"type": 11, "media": {"url": "https://www.gravatar.com/avatar/2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90?d=identicon&s=128"}}`
 )
 
@@ -55,48 +55,48 @@ func TestForgejoRenderers(t *testing.T) {
 		want   string // the Container
 	}{
 		{"push", "push", "push", fixture(t, "forgejo/push"), "push", container(0,
-			section(aliceLine, "## [[soup/winnow-test:main] 2 new commits]("+winnowTest+"/compare/1111111111111111111111111111111111111111...3333333333333333333333333333333333333333)\n"+
+			section(aliceLine, "### [[soup/winnow-test:main] 2 new commits]("+winnowTest+"/compare/1111111111111111111111111111111111111111...3333333333333333333333333333333333333333)\n"+
 				"[`2222222`]("+winnowTest+"/commit/2222222222222222222222222222222222222222) Fix panic on empty config\n"+
 				"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test", aliceThumb))},
 		{"push with more commits than the payload holds", "push", "push",
 			bytes.Replace(fixture(t, "forgejo/push"), []byte(`"total_commits": 2`), []byte(`"total_commits": 20`), 1), "push", container(0,
-				section(aliceLine, "## [[soup/winnow-test:main] 20 new commits]("+winnowTest+"/compare/1111111111111111111111111111111111111111...3333333333333333333333333333333333333333)\n"+
+				section(aliceLine, "### [[soup/winnow-test:main] 20 new commits]("+winnowTest+"/compare/1111111111111111111111111111111111111111...3333333333333333333333333333333333333333)\n"+
 					"[`2222222`]("+winnowTest+"/commit/2222222222222222222222222222222222222222) Fix panic on empty config\n"+
 					"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test", aliceThumb))},
 		// The commit author is not the pusher, so the commit line names it.
 		{"test delivery is a normal push", "push", "push", fixture(t, "forgejo/push-test-delivery"), "push", container(0,
-			section(soupLine, "## [[soup/winnow-test:main] 1 new commit]("+winnowTest+"/compare/3333333333333333333333333333333333333333...3333333333333333333333333333333333333333)\n"+
+			section(soupLine, "### [[soup/winnow-test:main] 1 new commit]("+winnowTest+"/compare/3333333333333333333333333333333333333333...3333333333333333333333333333333333333333)\n"+
 				"[`3333333`]("+winnowTest+"/commit/3333333333333333333333333333333333333333) Add test - Alice", soupThumb))},
 		{"pull request opened", "pull_request", "pull_request", opened, "pull_request.opened", container(2066493,
-			section(aliceLine, "## [[soup/winnow-test] Pull request opened: #5 Add Forgejo support]("+pull5+")\nParses X-Forgejo-Event-Type.", aliceThumb), diff)},
+			section(aliceLine, "### [[soup/winnow-test] Pull request opened: #5 Add Forgejo support]("+pull5+")\nParses X-Forgejo-Event-Type.", aliceThumb), diff)},
 		{"synchronized becomes synchronize", "pull_request", "pull_request_sync", fixture(t, "forgejo/pull_request_sync-synchronized"), "pull_request.synchronize", container(0,
-			section(aliceLine, "## [[soup/winnow-test] Pull request synchronize: #5 Add Forgejo support]("+pull5+")", aliceThumb), diff)},
+			section(aliceLine, "### [[soup/winnow-test] Pull request synchronize: #5 Add Forgejo support]("+pull5+")", aliceThumb), diff)},
 		{"pull request merged", "pull_request", "pull_request", fixture(t, "forgejo/pull_request-closed-merged"), "pull_request.closed", container(8540383,
-			section(soupLine, "## [[soup/winnow-test] Pull request merged: #5 Add Forgejo support]("+pull5+")", soupThumb), diff)},
+			section(soupLine, "### [[soup/winnow-test] Pull request merged: #5 Add Forgejo support]("+pull5+")", soupThumb), diff)},
 		{"review request stays a pull request Event", "pull_request", "pull_request_review_request",
 			bytes.Replace(opened, []byte(`"action": "opened"`), []byte(`"action": "review_requested"`), 1), "pull_request.review_requested", container(0,
-				section(aliceLine, "## [[soup/winnow-test] Pull request review requested: #5 Add Forgejo support]("+pull5+")", aliceThumb), diff)},
+				section(aliceLine, "### [[soup/winnow-test] Pull request review requested: #5 Add Forgejo support]("+pull5+")", aliceThumb), diff)},
 		{"label_updated stays as it is", "pull_request", "pull_request_label", fixture(t, "forgejo/pull_request_label-label_updated"), "pull_request.label_updated", container(0,
-			section(soupLine, "## [[soup/winnow-test] Pull request label updated: #5 Add Forgejo support]("+pull5+")", soupThumb), diff)},
+			section(soupLine, "### [[soup/winnow-test] Pull request label updated: #5 Add Forgejo support]("+pull5+")", soupThumb), diff)},
 		// Forgejo gets no list buttons, so an issue has no buttons.
 		{"issue opened", "issues", "issues", fixture(t, "forgejo/issues-opened"), "issues.opened", container(2066493,
-			section(aliceLine, "## [[soup/winnow-test] Issue opened: #3 Crash on empty config]("+winnowTest+"/issues/3)\nSteps:\n1. Start with an empty file.\n2. It panics.", aliceThumb))},
+			section(aliceLine, "### [[soup/winnow-test] Issue opened: #3 Crash on empty config]("+winnowTest+"/issues/3)\nSteps:\n1. Start with an empty file.\n2. It panics.", aliceThumb))},
 		{"comment on an issue", "issue_comment", "issue_comment", fixture(t, "forgejo/issue_comment-created"), "issue_comment.created", container(0,
-			section(soupLine, "## [[soup/winnow-test] New comment on issue: #3 Crash on empty config]("+winnowTest+"/issues/3#issuecomment-900)\nThanks, I can reproduce it.", soupThumb),
+			section(soupLine, "### [[soup/winnow-test] New comment on issue: #3 Crash on empty config]("+winnowTest+"/issues/3#issuecomment-900)\nThanks, I can reproduce it.", soupThumb),
 			buttonRowJSON("Issue", winnowTest+"/issues/3", "alice", "https://example.invalid/alice"))},
 		{"comment on a pull request", "issue_comment", "pull_request_comment", fixture(t, "forgejo/pull_request_comment-created"), "issue_comment.created", container(0,
-			section(soupLine, "## [[soup/winnow-test] New comment on pull request: #5 Add Forgejo support]("+pull5+"#issuecomment-901)\nLooks good, one nit below.", soupThumb), review)},
+			section(soupLine, "### [[soup/winnow-test] New comment on pull request: #5 Add Forgejo support]("+pull5+"#issuecomment-901)\nLooks good, one nit below.", soupThumb), review)},
 		{"review approved", "pull_request_approved", "pull_request_review_approved", fixture(t, "forgejo/pull_request_review_approved-reviewed"), "pull_request_review.submitted", container(2066493,
-			section(soupLine, "## [[soup/winnow-test] Review approved: #5 Add Forgejo support]("+pull5+")\nReview text (approved).", soupThumb), review)},
+			section(soupLine, "### [[soup/winnow-test] Review approved: #5 Add Forgejo support]("+pull5+")\nReview text (approved).", soupThumb), review)},
 		{"review rejected", "pull_request_rejected", "pull_request_review_rejected", fixture(t, "forgejo/pull_request_review_rejected-reviewed"), "pull_request_review.submitted", container(13574702,
-			section(soupLine, "## [[soup/winnow-test] Review changes requested: #5 Add Forgejo support]("+pull5+")\nReview text (changes_requested).", soupThumb), review)},
+			section(soupLine, "### [[soup/winnow-test] Review changes requested: #5 Add Forgejo support]("+pull5+")\nReview text (changes_requested).", soupThumb), review)},
 		{"review with comments", "pull_request_comment", "pull_request_review_comment", fixture(t, "forgejo/pull_request_review_comment-reviewed"), "pull_request_review.submitted", container(0,
-			section(soupLine, "## [[soup/winnow-test] Review commented: #5 Add Forgejo support]("+pull5+")\nReview text (commented).", soupThumb), review)},
+			section(soupLine, "### [[soup/winnow-test] Review commented: #5 Add Forgejo support]("+pull5+")\nReview text (commented).", soupThumb), review)},
 		// A Forgejo release keeps the identicon of the sender.
 		{"release published", "release", "release", fixture(t, "forgejo/release-published"), "release.published", container(0,
-			section(soupLine, "## [[soup/winnow-test] Release published: v1.0.0]("+winnowTest+"/releases/tag/v1.0.0)\nFirst release.", soupThumb))},
+			section(soupLine, "### [[soup/winnow-test] Release published: v1.0.0]("+winnowTest+"/releases/tag/v1.0.0)\nFirst release.", soupThumb))},
 		{"release updated becomes edited", "release", "release", fixture(t, "forgejo/release-updated"), "release.edited", container(0,
-			section(soupLine, "## [[soup/winnow-test] Release edited: v1.0.0]("+winnowTest+"/releases/tag/v1.0.0)", soupThumb))},
+			section(soupLine, "### [[soup/winnow-test] Release edited: v1.0.0]("+winnowTest+"/releases/tag/v1.0.0)", soupThumb))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

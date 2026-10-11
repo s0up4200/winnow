@@ -28,7 +28,7 @@ const githubPoster = `"username": "GitHub", "avatar_url": "https://avatars.githu
 
 // The sender line and the avatar of the sender in most GitHub fixtures.
 const (
-	codertocatLine  = `{"type": 10, "content": "-# [Codertocat](https://example.invalid/Codertocat)"}`
+	codertocatLine  = `{"type": 10, "content": "**[Codertocat](https://example.invalid/Codertocat)**"}`
 	codertocatThumb = `{"type": 11, "media": {"url": "https://example.invalid/u/21031067?v=4"}}`
 )
 
@@ -78,59 +78,59 @@ func TestRenderers(t *testing.T) {
 		want    string // the Container
 	}{
 		{"issue opened", "issues", "issues_opened", container(2066493,
-			section(codertocatLine, "## [[Codertocat/Hello-World] Issue opened: #1 Spelling error in the README file]("+issue1+")\nIt looks like you accidently spelled 'commit' with two 't's.", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] Issue opened: #1 Spelling error in the README file]("+issue1+")\nIt looks like you accidently spelled 'commit' with two 't's.", codertocatThumb),
 			buttonRowJSON("Issues by Codertocat", issues))},
 		{"issue closed", "issues", "issues_closed", container(13574702,
-			section(codertocatLine, "## [[Codertocat/Hello-World] Issue closed: #1 Spelling error in the README file]("+issue1+")", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] Issue closed: #1 Spelling error in the README file]("+issue1+")", codertocatThumb),
 			buttonRowJSON("Issues by Codertocat", issues))},
 		{"pull request opened", "pull_request", "pull_request_opened", container(2066493,
-			section(codertocatLine, "## [[Codertocat/Hello-World] Pull request opened: #2 Update the README with new information.]("+pull2+")\nThis is a pretty simple change that we need to pull into master.", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] Pull request opened: #2 Update the README with new information.]("+pull2+")\nThis is a pretty simple change that we need to pull into master.", codertocatThumb),
 			buttonRowJSON("Diff", pull2+"/files", "Checks", pull2+"/checks", "PRs by Codertocat", prs))},
 		{"pull request merged", "pull_request", "pull_request_merged", container(8540383,
-			section(`{"type": 10, "content": "-# [s0up4200](https://github.example.invalid/s0up4200)"}`,
-				"## [[autobrr/qui] Pull request merged: #43 Add cross-seed search](https://github.example.invalid/autobrr/qui/pull/43)",
+			section(`{"type": 10, "content": "**[s0up4200](https://github.example.invalid/s0up4200)**"}`,
+				"### [[autobrr/qui] Pull request merged: #43 Add cross-seed search](https://github.example.invalid/autobrr/qui/pull/43)",
 				`{"type": 11, "media": {"url": "https://avatars.example.invalid/u/3001"}}`),
 			buttonRowJSON("Diff", "https://github.example.invalid/autobrr/qui/pull/43/files", "Checks", "https://github.example.invalid/autobrr/qui/pull/43/checks",
 				"PRs by s0up4200", "https://github.example.invalid/autobrr/qui/pulls?q=is%3Apr+author%3As0up4200"))},
 		{"pull request closed without a merge", "pull_request", "pull_request_closed_unmerged", container(13574702,
-			section(codertocatLine, "## [[Codertocat/Hello-World] Pull request closed: #2 Update the README with new information.]("+pull2+")", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] Pull request closed: #2 Update the README with new information.]("+pull2+")", codertocatThumb),
 			buttonRowJSON("Diff", pull2+"/files", "Checks", pull2+"/checks", "PRs by Codertocat", prs))},
 		{"comment on an issue", "issue_comment", "issue_comment_created", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World] New comment on issue: #1 Spelling error in the README file]("+issue1+"#issuecomment-492700400)\nYou are totally right! I'll get this fixed right away.", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] New comment on issue: #1 Spelling error in the README file]("+issue1+"#issuecomment-492700400)\nYou are totally right! I'll get this fixed right away.", codertocatThumb),
 			buttonRowJSON("Issue", issue1, "Issues by Codertocat", issues))},
 		{"comment on a pull request", "issue_comment", "issue_comment_created_on_pull", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World] New comment on pull request: #1 Spelling error in the README file]("+pull1+"#issuecomment-492700400)\nYou are totally right! I'll get this fixed right away.", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] New comment on pull request: #1 Spelling error in the README file]("+pull1+"#issuecomment-492700400)\nYou are totally right! I'll get this fixed right away.", codertocatThumb),
 			buttonRowJSON("PR", pull1, "Diff", pull1+"/files", "Checks", pull1+"/checks", "PRs by Codertocat", prs))},
 		{"review with no text", "pull_request_review", "pull_request_review_submitted", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World] Review commented: #2 Update the README with new information.]("+pull2+"#pullrequestreview-237895671)", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] Review commented: #2 Update the README with new information.]("+pull2+"#pullrequestreview-237895671)", codertocatThumb),
 			buttonRowJSON("PR", pull2, "Diff", pull2+"/files", "Checks", pull2+"/checks", "PRs by Codertocat", prs))},
 		{"review comment", "pull_request_review_comment", "pull_request_review_comment_created", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World] New review comment: #2 Update the README with new information.]("+pull2+"#discussion_r284312630)\nMaybe you should use more emoji on this line.", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] New review comment: #2 Update the README with new information.]("+pull2+"#discussion_r284312630)\nMaybe you should use more emoji on this line.", codertocatThumb),
 			buttonRowJSON("PR", pull2, "Diff", pull2+"/files", "Checks", pull2+"/checks", "PRs by Codertocat", prs))},
 		{"discussion", "discussion", "discussion_created", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World] Discussion created: #4 TEST edit]("+hello+"/discussions/4)\nTEST edit", codertocatThumb))},
+			section(codertocatLine, "### [[Codertocat/Hello-World] Discussion created: #4 TEST edit]("+hello+"/discussions/4)\nTEST edit", codertocatThumb))},
 		{"discussion comment", "discussion_comment", "discussion_comment_created", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World] New comment on discussion: #4 TEST edit]("+hello+"/discussions/4#discussioncomment-550062)\nANSWER", codertocatThumb),
+			section(codertocatLine, "### [[Codertocat/Hello-World] New comment on discussion: #4 TEST edit]("+hello+"/discussions/4#discussioncomment-550062)\nANSWER", codertocatThumb),
 			buttonRowJSON("Discussion", hello+"/discussions/4"))},
 		// The commit author is the pusher, so the commit lines do not name it.
 		{"push", "push", "push", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World:master] 2 new commits]("+hello+"/compare/6113728f27ae...0d1a26e67d8f)\n"+
+			section(codertocatLine, "### [[Codertocat/Hello-World:master] 2 new commits]("+hello+"/compare/6113728f27ae...0d1a26e67d8f)\n"+
 				"[`6113728`]("+hello+"/commit/6113728f27ae82c7b1a177c8d03f9e96e0adf246) Initial commit\n"+
 				"[`0d1a26e`]("+hello+"/commit/0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c) Update README.md", codertocatThumb))},
 		{"push that deletes a tag", "push", "push_deleted_tag", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World] Tag deleted: simple-tag]("+hello+"/compare/d70c5c6fa638^...000000000000)", codertocatThumb))},
+			section(codertocatLine, "### [[Codertocat/Hello-World] Tag deleted: simple-tag]("+hello+"/compare/d70c5c6fa638^...000000000000)", codertocatThumb))},
 		{"release with no name", "release", "release_published", container(0,
-			section(codertocatLine, "## [[Codertocat/Hello-World] Release published: 0.0.1]("+hello+"/releases/tag/0.0.1)", codertocatThumb))},
+			section(codertocatLine, "### [[Codertocat/Hello-World] Release published: 0.0.1]("+hello+"/releases/tag/0.0.1)", codertocatThumb))},
 		{"fork", "fork", "fork", container(0,
-			section(`{"type": 10, "content": "-# [Octocoders](https://example.invalid/Octocoders)"}`,
-				"## [[Codertocat/Hello-World] Fork created: Octocoders/Hello-World](https://example.invalid/Octocoders/Hello-World)",
+			section(`{"type": 10, "content": "**[Octocoders](https://example.invalid/Octocoders)**"}`,
+				"### [[Codertocat/Hello-World] Fork created: Octocoders/Hello-World](https://example.invalid/Octocoders/Hello-World)",
 				`{"type": 11, "media": {"url": "https://example.invalid/u/38302899?v=4"}}`))},
 		{"star", "watch", "watch_started", container(14922561,
-			section(codertocatLine, "## [[Codertocat/Hello-World] New star]("+hello+")", codertocatThumb))},
+			section(codertocatLine, "### [[Codertocat/Hello-World] New star]("+hello+")", codertocatThumb))},
 		{"star from the star Event", "star", "star_created", container(14922561,
-			section(codertocatLine, "## [[Codertocat/Hello-World] New star]("+hello+")", codertocatThumb))},
+			section(codertocatLine, "### [[Codertocat/Hello-World] New star]("+hello+")", codertocatThumb))},
 		{"Fallback message", "label", "label_created", container(0,
-			`{"type": 10, "content": "## [label.created on autobrr/qui by s0up4200](https://github.example.invalid/autobrr/qui)"}`)},
+			`{"type": 10, "content": "### [label.created on autobrr/qui by s0up4200](https://github.example.invalid/autobrr/qui)"}`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -229,7 +229,7 @@ func TestRendererCutsToDiscordLimits(t *testing.T) {
 	}
 	m := decodeMessage(t, h.waitDiscord().Body)
 	heading := m.Components[0].Components[0].Components[1].Content
-	title, _, _ := strings.Cut(strings.TrimPrefix(heading, "## ["), "](")
+	title, _, _ := strings.Cut(strings.TrimPrefix(heading, "### ["), "](")
 	if n := utf8.RuneCountInString(title); n != 256 || !strings.HasSuffix(title, "é…") {
 		t.Errorf("heading has %d characters, want 256 that end in é…: %q", n, title)
 	}

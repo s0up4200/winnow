@@ -48,7 +48,7 @@ func TestDeliveryBecomesFallbackMessage(t *testing.T) {
 	assertJSON(t, got.Body, `{
 		`+githubPoster+`,
 		"components": [{"type": 17, "components": [
-			{"type": 10, "content": "## [label.created on autobrr/qui by s0up4200](https://github.example.invalid/autobrr/qui)"}
+			{"type": 10, "content": "### [label.created on autobrr/qui by s0up4200](https://github.example.invalid/autobrr/qui)"}
 		]}],
 		"allowed_mentions": {"parse": []}
 	}`)

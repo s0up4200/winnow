@@ -381,7 +381,10 @@ func excerptOf(t *testing.T, m message) string {
 	if box.Type != typeContainer {
 		t.Fatalf("last component has type %d, want a Container", box.Type)
 	}
+	// The first Text Display that is not the sender line holds the heading.
+	// A body can also start with "### ", so only the first one is the heading.
 	var parts []string
+	headed := false
 	for _, c := range box.Components {
 		switch c.Type {
 		case typeSection:
@@ -389,11 +392,17 @@ func excerptOf(t *testing.T, m message) string {
 			if _, top, ok := strings.Cut(heading, "\n"); ok {
 				parts = append(parts, top)
 			}
+			headed = true
 		case typeTextDisplay:
-			if !strings.HasPrefix(c.Content, "## ") && !strings.HasPrefix(c.Content, "-# ") {
+			switch {
+			case !headed && strings.HasPrefix(c.Content, "**"): // the sender line
+			case !headed:
+				if _, top, ok := strings.Cut(c.Content, "\n"); ok {
+					parts = append(parts, top)
+				}
+				headed = true
+			default:
 				parts = append(parts, c.Content)
-			} else if _, top, ok := strings.Cut(c.Content, "\n"); ok && strings.HasPrefix(c.Content, "## ") {
-				parts = append(parts, top)
 			}
 		}
 	}
