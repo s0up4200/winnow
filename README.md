@@ -149,7 +149,7 @@ These rules apply:
 - `author_bot` uses the same test on the author of the pull request or the issue, not on the sender. A Renovate pull request that a person merges has `author_bot: true`. An Event without a pull request or an issue has no author.
 - `private` is the private flag of the repository. Use `private: false` to send only the Events of public repositories, for example to a public channel. A GitHub `internal` repository is private. An Event without a repository, for example an org Event, matches neither `private: true` nor `private: false`. On Forgejo, winnow reads only the flag of the repository, so a public repository in a `limited` or `private` org matches `private: false`.
 
-`*` is the only wildcard. It matches any characters except `/`. Thus `repo: "autobrr/*"` matches each repository of `autobrr`, but `repo: "*"` matches no repository. To match all repositories, leave out the `repo` field. `[`, `]`, and `?` are normal characters, so `renovate[bot]` matches the bot login.
+`*` is the only wildcard. It matches any characters except `/`. Thus `repo: "autobrr/*"` matches each repository of `autobrr`, but `repo: "*"` matches no repository. To match all repositories, leave out the `repo` field. `*` does not match an empty field, so `owner: "*"` does not match an Event without a repository. `[`, `]`, and `?` are normal characters, so `renovate[bot]` matches the bot login.
 
 In a flow sequence (a list in `[ ]`) or a flow mapping, put a login with `[bot]` in quotes, for example `["renovate[bot]", renovate]`. Without the quotes, the YAML parser reads the brackets as a list. In block style, `sender: renovate[bot]` needs no quotes.
 
@@ -305,6 +305,23 @@ On Forgejo, add a webhook to the organization or the repository:
 4. Set the secret to the value of the Source `secret`. Set a secret on each webhook. Winnow rejects a delivery with no signature.
 
 The Forgejo "Test delivery" button sends a normal push Event.
+
+GitHub sends the `sponsorship` event only to the webhook of a Sponsors listing, not to an org webhook. Only the owner of the sponsored account can add it. Each Sponsors listing is a separate Source with its own secret:
+
+1. Open "Your sponsors", click "Dashboard" next to the account, then click "Webhooks" and "Add webhook".
+2. Set the payload URL to `https://<your-host>/hook/<source-name>`.
+3. Set the content type to `application/json`.
+4. Set the secret to the value of the Source `secret`. GitHub calls the secret optional, but winnow rejects a delivery with no signature.
+
+Do not add a `sweep` block to this Source. GitHub has no API for the deliveries of a Sponsors webhook. If winnow misses a delivery, redeliver it by hand in the Sponsors dashboard within 3 days.
+
+Winnow does not show the login or the avatar of a Private sponsor in Discord, in the log, or in the store. A `sender:` Rule cannot match a Private sponsor. A downgrade sends `pending_tier_change` and later `tier_changed`. A cancellation sends `pending_cancellation` and later `cancelled`. To get one message for each change, drop one action of each pair:
+
+```yaml
+routes:
+  - match: { event: sponsorship, action: [pending_tier_change, pending_cancellation] }
+    drop: true
+```
 
 ## Metrics
 

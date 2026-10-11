@@ -40,13 +40,14 @@ type Event struct {
 	Body         string // text of the most specific object, for example the comment
 	SenderURL    string
 	SenderAvatar string
-	Target       string // login of the requested reviewer or the assignee; only for review_requested and assigned
-	Author       string // login of the author of the pull request or the issue
-	AuthorURL    string // profile of the Author
-	OwnerAvatar  string // avatar of the owner of the repository
-	Tag          string // tag name of a release
-	Push         Push   // push only
-	Alert        *Alert // security Events
+	Target       string       // login of the requested reviewer or the assignee; only for review_requested and assigned
+	Author       string       // login of the author of the pull request or the issue
+	AuthorURL    string       // profile of the Author
+	OwnerAvatar  string       // avatar of the owner of the repository
+	Tag          string       // tag name of a release
+	Push         Push         // push only
+	Alert        *Alert       // security Events
+	Sponsorship  *Sponsorship // sponsorship only
 }
 
 // Push is the data of a push Event.
@@ -76,6 +77,17 @@ type Alert struct {
 	Patched   string // dependabot_alert: the first version with a fix
 	Validity  string // secret_scanning_alert, for example active
 	GHSA      string // dependabot_alert: the GHSA ID of the advisory, or empty
+}
+
+// Sponsorship holds the data of a sponsorship Event that its Renderer
+// shows. The sponsor is the sender of the Event.
+type Sponsorship struct {
+	Sponsorable string // login of the sponsored account
+	Private     bool   // a Private sponsor; on edited, the new privacy level
+	Tier        string // name of the tier, for example "$5 a month"
+	OneTime     bool   // the tier is a one-time payment, not monthly
+	FromTier    string // tier_changed and pending_tier_change: the tier before the change
+	Effective   string // pending_cancellation and pending_tier_change: the date of the change
 }
 
 // NameAction returns "<event>.<action>", or only the Event name when the
@@ -114,6 +126,12 @@ type ghTopic struct {
 	Number  int    `json:"number"`
 	Title   string `json:"title"`
 	Body    string `json:"body"`
+}
+
+// ghTier is a tier of a Sponsors listing in a payload.
+type ghTier struct {
+	Name      string `json:"name"`
+	IsOneTime bool   `json:"is_one_time"`
 }
 
 // ghPayload holds the fields of a GitHub payload that winnow reads. A
@@ -198,6 +216,18 @@ type ghPayload struct {
 		SecretTypeDisplayName string `json:"secret_type_display_name"`
 		Validity              string `json:"validity"`
 	} `json:"alert"`
+	Sponsorship *struct {
+		Sponsor      *ghUser `json:"sponsor"` // GitHub can send null
+		Sponsorable  ghUser  `json:"sponsorable"`
+		PrivacyLevel string  `json:"privacy_level"`
+		Tier         ghTier  `json:"tier"`
+	} `json:"sponsorship"`
+	Changes struct {
+		Tier struct {
+			From ghTier `json:"from"`
+		} `json:"tier"`
+	} `json:"changes"`
+	EffectiveDate      string `json:"effective_date"`
 	RepositoryAdvisory *struct {
 		HTMLURL     string `json:"html_url"`
 		Summary     string `json:"summary"`
@@ -316,6 +346,28 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 	e.Push = Push{Size: cmp.Or(p.TotalCommits, len(p.Commits)), Created: p.Created, Deleted: p.Deleted}
 	for _, c := range p.Commits {
 		e.Push.Commits = append(e.Push.Commits, Commit{ID: c.ID, Message: c.Message, URL: c.URL, Author: cmp.Or(c.Author.Username, c.Author.Name)})
+	}
+	if s := p.Sponsorship; s != nil && e.Name == "sponsorship" {
+		e.Sponsorship = &Sponsorship{
+			Sponsorable: s.Sponsorable.Login,
+			// Only public shows the sponsor, so that an unknown level
+			// hides it too.
+			Private:   s.PrivacyLevel != "public",
+			Tier:      s.Tier.Name,
+			OneTime:   s.Tier.IsOneTime,
+			FromTier:  p.Changes.Tier.From.Name,
+			Effective: p.EffectiveDate,
+		}
+		// The sender of a sponsorship is the sponsor, because GitHub can
+		// send a change at the billing date with another sender. GitHub
+		// also sends the login of a Private sponsor, so winnow clears it
+		// here: then Discord, the log, the store, and a sender Rule never
+		// get it.
+		var sponsor ghUser
+		if s.Sponsor != nil && !e.Sponsorship.Private {
+			sponsor = *s.Sponsor
+		}
+		e.Sender, e.SenderBot, e.SenderURL, e.SenderAvatar = sponsor.Login, isBot(sponsor), sponsor.HTMLURL, sponsor.AvatarURL
 	}
 	if forge == "forgejo" {
 		mapForgejo(e, h.Get("X-Forgejo-Event-Type"), &p)

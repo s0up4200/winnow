@@ -188,3 +188,35 @@ routes:
 		})
 	}
 }
+
+// "*" must not match an empty field: a sponsorship has no repository, and
+// winnow clears the sender of a Private sponsor.
+func TestStarSkipsEmptyField(t *testing.T) {
+	tests := []struct {
+		name    string
+		match   string
+		fixture string
+		want    int
+	}{
+		{"public sponsor matches sender", "sender", "github/sponsorship_created", http.StatusAccepted},
+		{"private sponsor fails sender", "sender", "github/sponsorship_pending_tier_change_private", http.StatusNoContent},
+		{"sponsorship fails repo", "repo", "github/sponsorship_created", http.StatusNoContent},
+		{"sponsorship fails owner", "owner", "github/sponsorship_created", http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, `
+sources:
+  github-autobrr: { secret: test-secret }
+sinks:
+  all: { discord: https://discord.example.invalid/api/webhooks/1/token }
+routes:
+  - match: { `+tt.match+`: "*" }
+    to: [all]
+`)
+			if got := h.do(signedDelivery("github-autobrr", "sponsorship", fixture(t, tt.fixture))).Code; got != tt.want {
+				t.Errorf("status = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

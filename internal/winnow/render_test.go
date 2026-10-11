@@ -129,6 +129,25 @@ func TestRenderers(t *testing.T) {
 			section(codertocatLine, "### [[Codertocat/Hello-World] New star]("+hello+")", codertocatThumb))},
 		{"star from the star Event", "star", "star_created", container(14922561,
 			section(codertocatLine, "### [[Codertocat/Hello-World] New star]("+hello+")", codertocatThumb))},
+		// A sponsorship has no repository, so the heading names the
+		// sponsored account and has no link.
+		{"new sponsor", "sponsorship", "sponsorship_created", container(12532105,
+			section(`{"type": 10, "content": "**[monalisa](https://example.invalid/monalisa)**"}`, "### [octocat] New sponsor\nTier: $5 a month",
+				`{"type": 11, "media": {"url": "https://example.invalid/u/2?v=4"}}`))},
+		// GitHub can send a null sponsor. The sender of the payload does not
+		// take its place.
+		{"one-time sponsor with no sponsor", "sponsorship", "sponsorship_created_one_time_no_sponsor", container(12532105,
+			`{"type": 10, "content": "**A sponsor**"}`, `{"type": 10, "content": "### [octocat] New sponsor\nTier: $25 one time (one-time)"}`)},
+		{"sponsorship tier changed", "sponsorship", "sponsorship_tier_changed", container(12532105,
+			section(`{"type": 10, "content": "**[monalisa](https://example.invalid/monalisa)**"}`, "### [octocat] Sponsorship tier changed\nTier: $1 a month → $5 a month",
+				`{"type": 11, "media": {"url": "https://example.invalid/u/2?v=4"}}`))},
+		{"sponsorship cancellation scheduled", "sponsorship", "sponsorship_pending_cancellation", container(12532105,
+			section(`{"type": 10, "content": "**[monalisa](https://example.invalid/monalisa)**"}`, "### [octocat] Sponsorship cancellation scheduled\nTier: $5 a month\nTakes effect: 2020-01-01",
+				`{"type": 11, "media": {"url": "https://example.invalid/u/2?v=4"}}`))},
+		// The tier can identify a sponsor who changed to private, so an
+		// edited sponsorship does not show it.
+		{"sponsorship changed to private", "sponsorship", "sponsorship_edited_private", container(12532105,
+			`{"type": 10, "content": "**A private sponsor**"}`, `{"type": 10, "content": "### [octocat] Sponsorship changed to private"}`)},
 		{"Fallback message", "label", "label_created", container(0,
 			`{"type": 10, "content": "### [label.created on autobrr/qui by s0up4200](https://github.example.invalid/autobrr/qui)"}`)},
 	}
@@ -542,5 +561,23 @@ func BenchmarkDeliverLargeBody(b *testing.B) {
 		for _, sk := range o.sinks {
 			<-sk.queue
 		}
+	}
+}
+
+// GitHub sends the login of a Private sponsor, so winnow clears it. The
+// message and the log do not show it, and the message still shows the
+// tiers.
+func TestRendererHidesPrivateSponsor(t *testing.T) {
+	h := newHarness(t, catchAllConfig)
+	if got := h.do(signedDelivery("github-autobrr", "sponsorship", fixture(t, "github/sponsorship_pending_tier_change_private"))).Code; got != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", got)
+	}
+	body := h.waitDiscord().Body
+	assertJSON(t, body, `{`+githubPoster+`, "components": [`+container(12532105,
+		`{"type": 10, "content": "**A private sponsor**"}`,
+		`{"type": 10, "content": "### [octocat] Sponsorship tier change scheduled\nTier: $10 a month → $5 a month\nTakes effect: 2020-01-01"}`)+
+		`], "allowed_mentions": {"parse": []}}`)
+	if strings.Contains(string(body), "monalisa") || strings.Contains(h.logs.String(), "monalisa") {
+		t.Errorf("the message or the log shows the Private sponsor:\n%s\n%s", body, h.logs)
 	}
 }

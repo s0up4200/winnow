@@ -35,9 +35,9 @@ func (m *Matcher) matches(e *Event) bool {
 		m.Forge.match(&e.Forge) &&
 		m.Event.match(&e.Name) &&
 		m.Action.match(&e.Action) &&
-		m.Repo.match(new(strings.ToLower(e.Repo))) &&
-		m.Owner.match(new(strings.ToLower(e.Owner))) &&
-		m.Sender.match(new(strings.ToLower(e.Sender))) &&
+		m.Repo.match(nonEmpty(strings.ToLower(e.Repo))) &&
+		m.Owner.match(nonEmpty(strings.ToLower(e.Owner))) &&
+		m.Sender.match(nonEmpty(strings.ToLower(e.Sender))) &&
 		eq(m.SenderBot, &e.SenderBot) &&
 		eq(m.AuthorBot, e.AuthorBot) &&
 		m.Ref.match(e.Ref) &&
@@ -122,6 +122,16 @@ func (p Patterns) match(got *string) bool {
 		ok, _ := path.Match(pat, *got) // compile checked the pattern
 		return ok
 	})
+}
+
+// nonEmpty returns nil for an empty s, so that no pattern matches it, also not
+// "*". An Event without a repository has no repo and no owner, and a Private
+// sponsor has a cleared sender.
+func nonEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (p *Patterns) UnmarshalYAML(unmarshal func(any) error) error {
