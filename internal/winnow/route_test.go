@@ -188,3 +188,32 @@ routes:
 		})
 	}
 }
+
+// winnow clears the sender of a Private sponsor, and a sender: Rule must not
+// match the cleared sender, also not with "*".
+func TestSenderRuleSkipsPrivateSponsor(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+		want    int
+	}{
+		{"public sponsor matches", "github/sponsorship_created", http.StatusAccepted},
+		{"private sponsor does not match", "github/sponsorship_pending_tier_change_private", http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, `
+sources:
+  github-autobrr: { secret: test-secret }
+sinks:
+  all: { discord: https://discord.example.invalid/api/webhooks/1/token }
+routes:
+  - match: { sender: "*" }
+    to: [all]
+`)
+			if got := h.do(signedDelivery("github-autobrr", "sponsorship", fixture(t, tt.fixture))).Code; got != tt.want {
+				t.Errorf("status = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
