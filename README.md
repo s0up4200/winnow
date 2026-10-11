@@ -81,6 +81,7 @@ The kinds are:
 - `review_requested`: a Ping to the requested reviewer of a pull request.
 - `assigned`: a Ping to the assignee of an issue or a pull request. A Forgejo assignment does not ping, because the Forgejo payload does not name the assignee.
 - `comments`: a Ping for each direct `@login` mention in a new comment.
+- `sponsorship`: a Ping to the sponsored account of a GitHub Sponsors listing, for a new sponsorship, a cancelled sponsorship, and a changed tier. The actions `edited`, `pending_cancellation`, and `pending_tier_change` do not ping. A Private sponsorship also pings. The Ping names only the sponsored account. For the Sponsors listing of an organization, put the organization login in `users:` with the Discord user ID of the person who gets the Ping.
 
 If the Sink does not keep the kind, the Sink still gets the message, but without a Ping. Winnow does not start when the list has an unknown kind. The error names the valid kinds. Winnow also does not start when the `mentions` key has no value.
 

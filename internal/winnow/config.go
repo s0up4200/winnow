@@ -101,8 +101,9 @@ func (b *strictBool) UnmarshalYAML(n *yaml.Node) error {
 
 // pingKindNames holds the kinds of Ping. mentions: true means all of them.
 // review_requested and assigned are also the Event actions that set Target,
-// so render reads the kind of a Target Ping from the action.
-var pingKindNames = []string{"review_requested", "assigned", "comments"}
+// so render reads the kind of a Target Ping from the action. A sponsorship
+// Event also sets Target, and render reads its kind from the Event name.
+var pingKindNames = []string{"review_requested", "assigned", "comments", "sponsorship"}
 
 // pingKinds is the set of kinds of Ping that a Sink keeps. Nil keeps no kind.
 type pingKinds map[string]bool
@@ -132,7 +133,7 @@ func parsePingKinds(n *yaml.Node) (pingKinds, error) {
 	k := pingKinds{}
 	for _, kind := range kinds {
 		if !slices.Contains(pingKindNames, kind) {
-			return nil, fmt.Errorf("unknown kind of Ping %q: want review_requested, assigned, or comments", kind)
+			return nil, fmt.Errorf("unknown kind of Ping %q: want review_requested, assigned, comments, or sponsorship", kind)
 		}
 		k[kind] = true
 	}

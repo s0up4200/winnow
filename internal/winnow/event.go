@@ -40,7 +40,7 @@ type Event struct {
 	Body         string // text of the most specific object, for example the comment
 	SenderURL    string
 	SenderAvatar string
-	Target       string       // login of the requested reviewer or the assignee; only for review_requested and assigned
+	Target       string       // login to ping: the requested reviewer, the assignee, or the sponsored account
 	Author       string       // login of the author of the pull request or the issue
 	AuthorURL    string       // profile of the Author
 	OwnerAvatar  string       // avatar of the owner of the repository
@@ -368,6 +368,11 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 			sponsor = *s.Sponsor
 		}
 		e.Sender, e.SenderBot, e.SenderURL, e.SenderAvatar = sponsor.Login, isBot(sponsor), sponsor.HTMLURL, sponsor.AvatarURL
+		// Only these actions ping, so that each change pings once.
+		switch p.Action {
+		case "created", "cancelled", "tier_changed":
+			e.Target = s.Sponsorable.Login
+		}
 	}
 	if forge == "forgejo" {
 		mapForgejo(e, h.Get("X-Forgejo-Event-Type"), &p)

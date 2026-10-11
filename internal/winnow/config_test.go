@@ -130,7 +130,7 @@ routes:
 		{"empty database with a sweep", "sources:\n  s: { secret: x, sweep: { token: t, org: autobrr, hook: 1 } }\ndatabase: \"\"\n", "database is empty"},
 		{"alerts sink that is not in sinks", "alerts: b\n", `alerts: sink "b" is not in sinks`},
 		{"unknown kind of Ping", "sinks:\n  a: { discord: x, mentions: [assigned, assign] }\n",
-			`unknown kind of Ping "assign": want review_requested, assigned, or comments`},
+			`unknown kind of Ping "assign": want review_requested, assigned, comments, or sponsorship`},
 		{"mentions that is a number", "sinks:\n  a: { discord: x, mentions: 1 }\n", "want true, false, or a list of kinds"},
 		{"mentions that is a map", "sinks:\n  a: { discord: x, mentions: { assigned: true } }\n", "want true, false, or a list of kinds"},
 		{"mentions with no value", "sinks:\n  a: { discord: x, mentions: }\n", `sinks.a.mentions: want true, false, or a list of kinds, not ""`},
@@ -166,14 +166,14 @@ func TestLoadIncludeOther(t *testing.T) {
 }
 
 func TestLoadMentions(t *testing.T) {
-	all := []string{"assigned", "comments", "review_requested"}
+	all := []string{"assigned", "comments", "review_requested", "sponsorship"}
 	for value, want := range map[string][]string{
 		"":                                 nil,
 		", mentions: false":                nil,
 		", mentions: true":                 all,
 		", mentions: []":                   nil,
 		", mentions: [assigned, assigned]": {"assigned"},
-		", mentions: [comments, assigned, review_requested]": all,
+		", mentions: [comments, sponsorship, assigned, review_requested]": all,
 	} {
 		cfg, errs, _ := Load([]byte("sinks:\n  a: { discord: x" + value + " }\n"))
 		if len(errs) > 0 {

@@ -69,7 +69,7 @@ The list that links a forge login to a Discord user. Winnow pings only users in 
 _Avoid_: mention list, user mapping
 
 **Ping**:
-A Discord notification that winnow sends to a user in the User map, for a review request, an assignment, or an `@login` in a new comment.
+A Discord notification that winnow sends to a user in the User map, for a review request, an assignment, an `@login` in a new comment, or a new, cancelled, or changed sponsorship of a mapped Sponsors listing.
 _Avoid_: mention, notify
 
 **Digest**:
