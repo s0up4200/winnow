@@ -396,3 +396,77 @@ func TestPingKinds(t *testing.T) {
 		})
 	}
 }
+
+// sponsorshipPingConfig sends every Event to three Sinks: all has
+// mentions: true, sponsors keeps only sponsorship, and work keeps the other
+// kinds. The fixtures name octocat as the sponsored account and monalisa as
+// the sponsor.
+const sponsorshipPingConfig = `
+sources:
+  github-autobrr: { secret: test-secret }
+users:
+  octocat: "111"
+sinks:
+  all: { discord: https://discord.example.invalid/api/webhooks/1/token, mentions: true }
+  sponsors: { discord: https://discord.example.invalid/api/webhooks/2/token, mentions: [sponsorship] }
+  work: { discord: https://discord.example.invalid/api/webhooks/3/token, mentions: [review_requested, assigned, comments] }
+routes:
+  - match: {}
+    to: [all, sponsors, work]
+`
+
+func TestSponsorshipPings(t *testing.T) {
+	// withAction changes the action of the fixture name.
+	withAction := func(name, from, to string) func(*testing.T) []byte {
+		return func(t *testing.T) []byte {
+			return bytes.Replace(fixture(t, name), []byte(`"action": "`+from+`"`), []byte(`"action": "`+to+`"`), 1)
+		}
+	}
+	file := func(name string) func(*testing.T) []byte {
+		return func(t *testing.T) []byte { return fixture(t, name) }
+	}
+	tests := []struct {
+		name    string
+		body    func(*testing.T) []byte
+		ping    bool // the all and sponsors Sinks get <@111>
+		private bool // the messages and the log must not show monalisa
+	}{
+		{"created", file("github/sponsorship_created"), true, false},
+		{"cancelled", withAction("github/sponsorship_pending_cancellation", "pending_cancellation", "cancelled"), true, false},
+		{"tier_changed", file("github/sponsorship_tier_changed"), true, false},
+		{"Private created", withAction("github/sponsorship_edited_private", "edited", "created"), true, true},
+		{"Private tier_changed", withAction("github/sponsorship_pending_tier_change_private", "pending_tier_change", "tier_changed"), true, true},
+		{"edited", file("github/sponsorship_edited_private"), false, true},
+		{"pending_cancellation", file("github/sponsorship_pending_cancellation"), false, false},
+		{"pending_tier_change", file("github/sponsorship_pending_tier_change_private"), false, true},
+		{"unmapped sponsored account", func(t *testing.T) []byte {
+			return bytes.Replace(fixture(t, "github/sponsorship_created"), []byte(`"login": "octocat"`), []byte(`"login": "stranger"`), 1)
+		}, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, sponsorshipPingConfig)
+			if got := h.do(signedDelivery("github-autobrr", "sponsorship", tt.body(t))).Code; got != http.StatusAccepted {
+				t.Fatalf("status = %d, want 202", got)
+			}
+			got := map[string][]byte{}
+			for range 3 {
+				r := h.waitDiscord()
+				got[r.Sink] = r.Body
+			}
+			for _, sink := range []string{"all", "sponsors", "work"} {
+				want := `{"allowed_mentions": {"parse": []}}`
+				if tt.ping && sink != "work" {
+					want = `{"content": "<@111>", "allowed_mentions": {"parse": [], "users": ["111"]}}`
+				}
+				assertMentions(t, got[sink], want)
+				if tt.private && strings.Contains(string(got[sink]), "monalisa") {
+					t.Errorf("sink %s shows the Private sponsor:\n%s", sink, got[sink])
+				}
+			}
+			if tt.private && strings.Contains(h.logs.String(), "monalisa") {
+				t.Errorf("the log shows the Private sponsor:\n%s", h.logs)
+			}
+		})
+	}
+}

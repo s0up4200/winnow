@@ -1,6 +1,6 @@
 # Ping kinds are chosen per Sink
 
-A Sink lists the kinds of Ping that it keeps: `review_requested`, `assigned`, and `comments`. A message whose kind is off still goes to the Sink without a Ping. We chose the Sink because Pings are already a Sink setting (`mentions`), and each Sink is one Discord channel, where the Pings arrive.
+A Sink lists the kinds of Ping that it keeps: `review_requested`, `assigned`, `comments`, and `sponsorship`. A message whose kind is off still goes to the Sink without a Ping. We chose the Sink because Pings are already a Sink setting (`mentions`), and each Sink is one Discord channel, where the Pings arrive.
 
 ## Considered options
 

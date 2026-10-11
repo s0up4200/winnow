@@ -124,7 +124,11 @@ func render(e *Event, c card, ping bool, p pings, mentioned func() []string) mes
 		msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
 	}
 	var mentions string // the Ping text
-	if id, ok := p.users[strings.ToLower(e.Target)]; ok && ping && p.kinds[e.Action] && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
+	kind := e.Action    // the kind of the Target Ping
+	if e.Name == "sponsorship" {
+		kind = e.Name
+	}
+	if id, ok := p.users[strings.ToLower(e.Target)]; ok && ping && p.kinds[kind] && e.Target != "" && !strings.EqualFold(e.Target, e.Sender) {
 		mentions = "<@" + id + ">"
 		msg.AllowedMentions.Users = []string{id}
 	}
