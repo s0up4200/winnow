@@ -133,7 +133,7 @@ Each Route must have `match:` and exactly one of `to:` (a list of Sinks) and `dr
 A matcher has these fields:
 
 - `source`, `forge` (`github` or `forgejo`), `event`, `action`, `repo` (for example `autobrr/qui`), `owner`, `sender`, `ref`, and `review_state` take a string or a list of strings.
-- `sender_bot`, `author_bot`, `merged`, `draft`, and `is_pull` take `true` or `false`.
+- `sender_bot`, `author_bot`, `merged`, `draft`, `is_pull`, and `private` take `true` or `false`.
 - `not:` takes one matcher or a list of matchers.
 
 These rules apply:
@@ -147,6 +147,7 @@ These rules apply:
 - `repo`, `owner`, and `sender` match without case.
 - `sender_bot` is true when GitHub marks the sender as a bot, when the login ends in `[bot]`, or when the login is in `bots:`.
 - `author_bot` uses the same test on the author of the pull request or the issue, not on the sender. A Renovate pull request that a person merges has `author_bot: true`. An Event without a pull request or an issue has no author.
+- `private` is the private flag of the repository. Use `private: false` to send only the Events of public repositories, for example to a public channel. A GitHub `internal` repository is private. An Event without a repository, for example an org Event, matches neither `private: true` nor `private: false`. On Forgejo, winnow reads only the flag of the repository, so a public repository in a `limited` or `private` org matches `private: false`.
 
 `*` is the only wildcard. It matches any characters except `/`. Thus `repo: "autobrr/*"` matches each repository of `autobrr`, but `repo: "*"` matches no repository. To match all repositories, leave out the `repo` field. `[`, `]`, and `?` are normal characters, so `renovate[bot]` matches the bot login.
 

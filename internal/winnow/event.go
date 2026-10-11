@@ -27,6 +27,7 @@ type Event struct {
 	Draft       *bool   // pull_request
 	ReviewState *string // pull_request_review
 	IsPull      *bool   // issue_comment: true on a pull request
+	Private     *bool   // the repository is private; only when the Event has a repository
 	AuthorBot   *bool   // the Author is a Bot sender; only when the Event has an Author
 
 	// Rules cannot match the fields below. The log lines show Delivery. The
@@ -130,6 +131,7 @@ type ghPayload struct {
 		FullName string `json:"full_name"`
 		HTMLURL  string `json:"html_url"`
 		Owner    ghUser `json:"owner"`
+		Private  *bool  `json:"private"`
 	} `json:"repository"`
 	PullRequest struct {
 		ghTopic
@@ -253,6 +255,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		Merged:       p.PullRequest.Merged,
 		Draft:        p.PullRequest.Draft,
 		ReviewState:  p.Review.State,
+		Private:      p.Repository.Private,
 		Delivery:     delivery,
 		RepoURL:      p.Repository.HTMLURL,
 		SenderURL:    p.Sender.HTMLURL,
