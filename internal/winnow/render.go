@@ -308,13 +308,18 @@ func releaseThumb(e *Event, icons map[string]string) string {
 	return avatar(e)
 }
 
-// buttons returns the link buttons of e. No button opens the same page as
-// the heading or the sender line. Forgejo has no checks page, and its lists
-// filter by the numeric ID of the poster, so a Forgejo Event gets no Checks
-// button and no list button.
+// buttons returns the link buttons of e. A card that mainLabel gives a
+// label gets a first button that opens the heading link, so that a reader
+// on a phone does not have to scroll back up to the heading. No other
+// button opens the same page as the heading or the sender line.
+// Forgejo has no checks page, and its lists filter by the numeric ID of the
+// poster, so a Forgejo Event gets no Checks button and no list button.
 func buttons(e *Event) []button {
 	var bs []button
 	add := func(label, url string) { bs = append(bs, button{label, url}) }
+	if l := mainLabel(e); l != "" && e.URL != "" {
+		add(l, e.URL)
+	}
 	if e.Name == "dependabot_alert" && e.Alert != nil && e.Alert.GHSA != "" {
 		if u, err := url.Parse(e.RepoURL); err == nil && u.Host != "" {
 			add("Advisory", u.Scheme+"://"+u.Host+"/advisories/"+e.Alert.GHSA)
@@ -322,7 +327,7 @@ func buttons(e *Event) []button {
 		return bs
 	}
 	if e.RepoURL == "" || e.Number == 0 {
-		return nil
+		return bs
 	}
 	n := strconv.Itoa(e.Number)
 	github := e.Forge == "github"
@@ -372,6 +377,37 @@ func buttons(e *Event) []button {
 		add("Discussion", e.RepoURL+"/discussions/"+n)
 	}
 	return bs
+}
+
+// mainLabel returns the label of the button to the main object of e, or
+// "" when the card of e gets no such button. The kind of card decides, not
+// the body text, so that the button does not come and go with an empty
+// body. A comment or a review links its heading to the comment or the
+// review, and gets its button to the main object in buttons.
+func mainLabel(e *Event) string {
+	switch e.NameAction() {
+	case "pull_request.opened":
+		return "PR"
+	case "issues.opened":
+		return "Issue"
+	case "discussion.created":
+		return "Discussion"
+	case "release.published":
+		return "Release"
+	case "repository_advisory.reported", "repository_advisory.published":
+		return "Advisory"
+	}
+	switch e.Name {
+	case "dependabot_alert", "code_scanning_alert", "secret_scanning_alert":
+		return "Alert"
+	case "push":
+		// A push that lists commits. A created or deleted branch or tag
+		// has no body.
+		if !e.Push.Deleted && e.Push.Size > 0 {
+			return "Compare"
+		}
+	}
+	return ""
 }
 
 // avatar returns the icon of the sender of e. A Forgejo sender, or a sender
