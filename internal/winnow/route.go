@@ -26,6 +26,7 @@ type Matcher struct {
 	Draft       *bool    `yaml:"draft"`
 	ReviewState Patterns `yaml:"review_state"`
 	IsPull      *bool    `yaml:"is_pull"`
+	Private     *bool    `yaml:"private"`
 	Not         Matchers `yaml:"not"` // the Matcher fails when one of these matches
 }
 
@@ -44,6 +45,7 @@ func (m *Matcher) matches(e *Event) bool {
 		eq(m.Draft, e.Draft) &&
 		m.ReviewState.match(e.ReviewState) &&
 		eq(m.IsPull, e.IsPull) &&
+		eq(m.Private, e.Private) &&
 		!m.Not.match(e)
 }
 

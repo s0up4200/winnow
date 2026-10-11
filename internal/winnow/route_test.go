@@ -139,3 +139,52 @@ routes:
 		t.Errorf("errors = %q, warnings = %q\nwant errors %q, warnings %q", gotErrs, warns, wantErrs, wantWarns)
 	}
 }
+
+func TestPrivateRuleField(t *testing.T) {
+	private := func(b []byte) []byte {
+		return bytes.Replace(b, []byte(`"private": false`), []byte(`"private": true`), 1)
+	}
+	star := fixture(t, "github/star_created") // a public repository
+	issue := fixture(t, "forgejo/issues-opened")
+	github := func(b []byte) *http.Request { return signedDelivery("github-autobrr", "star", b) }
+	forgejo := func(b []byte) *http.Request { return forgejoDelivery("forgejo", "issues", "issues", b) }
+	// winnow answers a ping before the Routes, so the ping body goes out as
+	// an org-level Event. It has no repository.
+	org := func(b []byte) *http.Request { return signedDelivery("github-autobrr", "organization", b) }
+	ping := fixture(t, "github/ping")
+	tests := []struct {
+		name  string
+		match string
+		send  func([]byte) *http.Request
+		body  []byte
+		want  int
+	}{
+		{"public github matches private false", "false", github, star, http.StatusAccepted},
+		{"private github fails private false", "false", github, private(star), http.StatusNoContent},
+		{"private github matches private true", "true", github, private(star), http.StatusAccepted},
+		{"public github fails private true", "true", github, star, http.StatusNoContent},
+		{"public forgejo matches private false", "false", forgejo, issue, http.StatusAccepted},
+		{"private forgejo fails private false", "false", forgejo, private(issue), http.StatusNoContent},
+		{"private forgejo matches private true", "true", forgejo, private(issue), http.StatusAccepted},
+		{"public forgejo fails private true", "true", forgejo, issue, http.StatusNoContent},
+		{"no repository fails private false", "false", org, ping, http.StatusNoContent},
+		{"no repository fails private true", "true", org, ping, http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, `
+sources:
+  forgejo: { secret: test-secret }
+  github-autobrr: { secret: test-secret }
+sinks:
+  all: { discord: https://discord.example.invalid/api/webhooks/1/token }
+routes:
+  - match: { private: `+tt.match+` }
+    to: [all]
+`)
+			if got := h.do(tt.send(tt.body)).Code; got != tt.want {
+				t.Errorf("status = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
