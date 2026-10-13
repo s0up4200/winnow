@@ -472,9 +472,9 @@ func TestRendererLinksReleaseChangelog(t *testing.T) {
 // owner/repo#n links into the forge host of the Event, also for the
 // repository of the Event.
 func TestRendererLinksCrossRepositoryReferences(t *testing.T) {
-	body := "Fixed in autobrr/rls#18, see Codertocat/Hello-World#1 and my-org/repo.go_x-1#7."
+	body := "Fixed in autobrr/rls#18, see Codertocat/Hello-World#1, my-org/repo.go_x-1#7 and my_org/repo#4."
 	want := "Fixed in [autobrr/rls#18](https://example.invalid/autobrr/rls/issues/18), see [Codertocat/Hello-World#1](" + repoURL + "/issues/1)" +
-		" and [my-org/repo.go_x-1#7](https://example.invalid/my-org/repo.go_x-1/issues/7)."
+		", [my-org/repo.go_x-1#7](https://example.invalid/my-org/repo.go_x-1/issues/7) and [my_org/repo#4](https://example.invalid/my_org/repo/issues/4)."
 	if got := issueDescription(t, body); got != want {
 		t.Errorf("description = %q, want %q", got, want)
 	}
@@ -504,7 +504,7 @@ func TestRendererKeepsTextThatIsNotAReference(t *testing.T) {
 		"sha256: " + hash + hash[:24],
 		"```\nautobrr/rls#18\n```\nSee `autobrr/rls#18` and \\autobrr/rls#18.",
 		"[autobrr/rls#18](https://example.invalid/autobrr/rls/pull/18) https://example.invalid/autobrr/rls#18",
-		"x/autobrr/rls#18 autobrr/rls#12abc _autobrr/rls#12 docs.rs/foo#12",
+		"x/autobrr/rls#18 autobrr/rls#12abc docs.rs/foo#12",
 	} {
 		if got := issueDescription(t, body); got != body {
 			t.Errorf("description = %q, want %q", got, body)

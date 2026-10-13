@@ -493,7 +493,7 @@ var (
 	// that a body with many short runs, for example "a a a", does not make
 	// one match for each run.
 	references = regexp.MustCompile(inlineCodePattern + "|" + mdLinkPattern +
-		`|https?://[^\s<>]+|([A-Za-z0-9-]+/[A-Za-z0-9._-]+#[0-9]+)|([0-9a-f]{40,})|#([0-9]+)`)
+		`|https?://[^\s<>]+|([A-Za-z0-9_-]+/[A-Za-z0-9._-]+#[0-9]+)|([0-9a-f]{40,})|#([0-9]+)`)
 )
 
 // clean removes the parts of a body that Discord cannot show: comments,
