@@ -61,7 +61,7 @@ The generic message for a routed Event that has no Renderer. It names the event,
 _Avoid_: default message, generic embed
 
 **Reference**:
-A commit hash or `#n` in a body that winnow turns into a link to that commit, issue, or pull request.
+A commit hash, `#n`, or `owner/repo#n` in a body that winnow turns into a link to that commit, issue, or pull request.
 _Avoid_: autolink, mention
 
 **User map**:
