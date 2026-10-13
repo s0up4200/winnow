@@ -484,15 +484,16 @@ var (
 	boxes = strings.NewReplacer("[ ]", "☐", "[x]", "☑", "[X]", "☑")
 	// mdLink matches a markdown link. cutWords does not cut in one.
 	mdLink = regexp.MustCompile(mdLinkPattern)
-	// references matches a Reference, a full commit hash or #n. It also
-	// matches inline code, a markdown link, and a bare URL, because a
-	// Reference in them stays as it is. The match that starts first wins.
+	// references matches a Reference: owner/repo#n, a full commit hash, or
+	// #n. It also matches inline code, a markdown link, and a bare URL,
+	// because a Reference in them stays as it is. The match that starts
+	// first wins.
 	// The hex match takes the full run, so that a 64-character checksum
 	// does not match as a 40-character hash. It starts at 40 characters, so
 	// that a body with many short runs, for example "a a a", does not make
 	// one match for each run.
 	references = regexp.MustCompile(inlineCodePattern + "|" + mdLinkPattern +
-		`|https?://[^\s<>]+|([0-9a-f]{40,})|#([0-9]+)`)
+		`|https?://[^\s<>]+|([A-Za-z0-9_-]+/[A-Za-z0-9._-]+#[0-9]+)|([0-9a-f]{40,})|#([0-9]+)`)
 )
 
 // clean removes the parts of a body that Discord cannot show: comments,
@@ -569,9 +570,15 @@ func cleanProse(text string) string {
 // linkReferences changes each Reference in text to a markdown link into
 // repo. A hash link shows the first 7 characters. GitHub and Forgejo
 // redirect /issues/n to the pull request when n is a pull request.
+// owner/repo#n links into the host of repo.
 func linkReferences(text, repo string) string {
 	if repo == "" {
 		return text
+	}
+	// repo is <host>/<owner>/<repo>. Remove the last two parts.
+	host := repo
+	for range 2 {
+		host, _, _ = strings.CutLast(host, "/")
 	}
 	var b strings.Builder
 	last := 0
@@ -584,8 +591,13 @@ func linkReferences(text, repo string) string {
 			continue
 		}
 		m := text[i:j]
-		hex, num := loc[2] >= 0, loc[4] >= 0 // the groups of references
+		cross, hex, num := loc[2] >= 0, loc[4] >= 0, loc[6] >= 0 // the groups of references
 		switch {
+		// A "/" or a "." before the owner makes the match the end of a
+		// path or a domain, for example docs.rs/foo#12.
+		case cross && before != '/' && before != '.':
+			path, n, _ := strings.Cut(m, "#")
+			m = "[" + m + "](" + host + "/" + path + "/issues/" + n + ")"
 		case hex && len(m) == 40:
 			m = "[" + m[:7] + "](" + repo + "/commit/" + m + ")"
 		// & before # starts an HTML entity, for example &#39;.
