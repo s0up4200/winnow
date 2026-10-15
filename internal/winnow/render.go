@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -117,52 +118,53 @@ func draft(e *Event, icons map[string]string) (c card, ping bool) {
 	return c, true
 }
 
-// render turns the card c of e from draft into one Discord message for one
-// Sink. The Poster of each message is the forge of the Event. The message
-// pings each Target of e that the User map holds and that is not the
-// sender, once for each user ID and at most maxTargetPings users. New comments also ping the mapped logins that mentioned
-// returns. Each Ping needs its kind in p. A Fallback message, where ping is
-// false, never pings.
-func render(e *Event, c card, ping bool, p pings, mentioned func() []string) message {
-	msg := message{Username: "GitHub", AvatarURL: githubIcon}
-	if e.Forge == "forgejo" {
-		msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
-	}
-	var mentions string // the Ping text
-	kind := e.Action    // the kind of the Target Ping
-	if e.Name == "sponsorship" {
-		kind = e.Name
-	}
-	for _, t := range e.Targets {
-		id, ok := p.users[strings.ToLower(t)]
-		if !ok || !ping || !p.kinds[kind] || strings.EqualFold(t, e.Sender) || slices.Contains(msg.AllowedMentions.Users, id) || len(msg.AllowedMentions.Users) == maxTargetPings {
-			continue
+// render prepares the shared card of e and returns a function that makes
+// one message for each Sink's Ping kinds. Comment scanning runs only when
+// needed, once per Event. Each call returns its own message and Ping list.
+func render(e *Event, icons, users map[string]string) func(pingKinds) message {
+	c, ping := draft(e, icons)
+	mentioned := sync.OnceValue(func() []string { return commentMentions(e.Body, e.Sender, users) })
+	return func(kinds pingKinds) message {
+		msg := message{Username: "GitHub", AvatarURL: githubIcon}
+		if e.Forge == "forgejo" {
+			msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
 		}
-		if mentions != "" {
-			mentions += " "
+		var mentions string // the Ping text
+		kind := e.Action    // the kind of the Target Ping
+		if e.Name == "sponsorship" {
+			kind = e.Name
 		}
-		mentions += "<@" + id + ">"
-		msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
-	}
-	if ping && p.kinds["comments"] && len(p.users) > 0 {
-		switch e.NameAction() {
-		case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
-			for _, id := range mentioned() {
-				mention := "<@" + id + ">"
-				if mentions != "" {
-					mention = " " + mention
+		for _, t := range e.Targets {
+			id, ok := users[strings.ToLower(t)]
+			if !ok || !ping || !kinds[kind] || strings.EqualFold(t, e.Sender) || slices.Contains(msg.AllowedMentions.Users, id) || len(msg.AllowedMentions.Users) == maxTargetPings {
+				continue
+			}
+			if mentions != "" {
+				mentions += " "
+			}
+			mentions += "<@" + id + ">"
+			msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
+		}
+		if ping && kinds["comments"] && len(users) > 0 {
+			switch e.NameAction() {
+			case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
+				for _, id := range mentioned() {
+					mention := "<@" + id + ">"
+					if mentions != "" {
+						mention = " " + mention
+					}
+					// 2000 characters leave room for the rest of the message.
+					if len(msg.AllowedMentions.Users) == maxPingUsers || len(mentions)+len(mention) > 2000 {
+						break
+					}
+					mentions += mention
+					msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
 				}
-				// 2000 characters leave room for the rest of the message.
-				if len(msg.AllowedMentions.Users) == maxPingUsers || len(mentions)+len(mention) > 2000 {
-					break
-				}
-				mentions += mention
-				msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
 			}
 		}
+		msg.Components = layout(c, mentions)
+		return msg
 	}
-	msg.Components = layout(c, mentions)
-	return msg
 }
 
 // card is the content of one Event message, before the layout.
@@ -262,13 +264,6 @@ func link(t, url string) string {
 		return t
 	}
 	return "[" + t + "](" + url + ")"
-}
-
-// pings is the Ping setting of one Sink: the User map and the kinds of Ping
-// that the Sink keeps.
-type pings struct {
-	users map[string]string
-	kinds pingKinds
 }
 
 // fallback returns the card of the Fallback message: only the heading
