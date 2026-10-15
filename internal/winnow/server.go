@@ -32,6 +32,8 @@ type Server struct {
 	now               func() time.Time // the clock; tests set a fixed time
 	tries             tries
 	webhookRejections *prometheus.CounterVec
+	events            *prometheus.CounterVec
+	digests           *prometheus.CounterVec
 	// sweepers holds the Sweep of each Source with a sweep block, in the
 	// order of the Source names.
 	sweepers []*sweeper
@@ -63,10 +65,23 @@ func New(cfg *Config, log *slog.Logger) (*Server, error) {
 		Name: "winnow_webhook_rejections_total",
 		Help: "Webhook requests rejected for a configured Source by HTTP status.",
 	}, []string{"source", "status"})
-	registry.MustRegister(sinkFailures, s.webhookRejections)
+	s.events = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "winnow_events_total",
+		Help: "Events that winnow admitted, live or Backfill, by the Route decision.",
+	}, []string{"source", "repo", "event", "action", "outcome", "backfill", "author_bot"})
+	s.digests = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "winnow_digests_total",
+		Help: "Digest Periods by their final state.",
+	}, []string{"digest", "state"})
+	registry.MustRegister(sinkFailures, s.webhookRejections, s.events, s.digests)
 	for name := range cfg.Sinks {
 		for _, reason := range []string{"queue_full", "rejected", "retries_exhausted", "shutdown"} {
 			sinkFailures.WithLabelValues(name, reason)
+		}
+	}
+	for _, d := range cfg.Digests {
+		for _, state := range []string{"sent", "failed", "skipped", "empty"} {
+			s.digests.WithLabelValues(d.Name, state)
 		}
 	}
 	for name := range cfg.Sources {
@@ -169,7 +184,21 @@ const (
 // whether winnow stores the Event (ADR 0007). A Backfill goes to the Sinks
 // only when that Route accepts Backfills (ADR 0008). A live Event that can
 // join a Burst waits for the rest of its Burst; a Backfill never waits.
+// admit counts e once in winnow_events_total, also when e joins a Burst.
 func (s *Server) admit(e *Event, at time.Time, backfill bool) outcome {
+	o := s.dispatch(e, at, backfill)
+	action := e.Action
+	if e.Name == "pull_request" && action == "closed" && e.Merged != nil && *e.Merged {
+		action = "merged"
+	}
+	authorBot := e.AuthorBot != nil && *e.AuthorBot
+	s.events.WithLabelValues(e.Source, e.Repo, e.Name, action, string(o),
+		strconv.FormatBool(backfill), strconv.FormatBool(authorBot)).Inc()
+	return o
+}
+
+// dispatch stores and sends e for admit, and returns the outcome.
+func (s *Server) dispatch(e *Event, at time.Time, backfill bool) outcome {
 	s.storeEvent(e, at)
 	// Winnow claims a live delivery, so that a Sweep skips it. GitHub can
 	// mark a delivery as failed when the tunnel drops the reply. The
