@@ -431,7 +431,7 @@ func (s *Server) stepDigest(ctx context.Context, d *Digest, now time.Time) error
 	}
 	s.tries.mu.Unlock()
 	for _, key := range failed {
-		if err := s.store.setState(d.key(), key, "failed"); err != nil {
+		if err := s.finishPeriod(d, key, "failed"); err != nil {
 			return err
 		}
 		s.log.Error("digest failed", "digest", d.Name, "period", key)
@@ -460,11 +460,21 @@ func (s *Server) stepDigest(ctx context.Context, d *Digest, now time.Time) error
 			}
 			continue
 		}
-		if err := s.store.setState(d.key(), p.key(), "skipped"); err != nil {
+		if err := s.finishPeriod(d, p.key(), "skipped"); err != nil {
 			return err
 		}
 		s.log.Warn("digest skipped", "digest", d.Name, "period", p.key())
 	}
+	return nil
+}
+
+// finishPeriod writes the final state of the Period of d to the store, and
+// counts it in winnow_digests_total when the write succeeds.
+func (s *Server) finishPeriod(d *Digest, period, state string) error {
+	if err := s.store.setState(d.key(), period, state); err != nil {
+		return err
+	}
+	s.digests.WithLabelValues(d.Name, state).Inc()
 	return nil
 }
 
@@ -489,7 +499,7 @@ func (s *Server) sendDigest(ctx context.Context, d *Digest, p period, first, now
 	k := tryKey{d.Name, p.key()}
 	msg, ok := summarize(d, p, from, events, s.cfg.Icons)
 	if !ok {
-		return s.store.setState(d.key(), k.period, "empty")
+		return s.finishPeriod(d, k.period, "empty")
 	}
 	s.tries.mu.Lock()
 	t := s.tries.m[k]
@@ -506,7 +516,7 @@ func (s *Server) sendDigest(ctx context.Context, d *Digest, p period, first, now
 			// the message again in between. When the state does not save,
 			// the try stays in sending, so that no step sends it again
 			// until a restart.
-			if err := s.store.setState(d.key(), k.period, "sent"); err != nil {
+			if err := s.finishPeriod(d, k.period, "sent"); err != nil {
 				s.log.Error("digest state not saved", append(attrs, "error", err)...)
 				return
 			}

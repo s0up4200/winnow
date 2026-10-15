@@ -329,13 +329,16 @@ routes:
 Prometheus can scrape `GET /metrics` on the existing Winnow listener. The endpoint needs no configuration switch or separate port.
 Keep access on the internal network. The Cloudflare Tunnel must expose only `/hook/`, so that `/metrics` stays internal.
 
-Winnow exposes only these two counters. It does not expose Go runtime or process metrics.
-Every configured Sink and Source has zero-valued series at startup for all its reasons or statuses.
+Winnow exposes only these four counters. It does not expose Go runtime or process metrics.
+Every configured Sink, Source, and Digest has zero-valued series at startup for all its reasons, statuses, or states.
+`winnow_events_total` has no series at startup, because winnow does not know its label values in advance.
 
 | Counter | Labels | Values |
 | --- | --- | --- |
 | `winnow_sink_delivery_failures_total` | `sink`, `reason` | Configured Sink name, and `queue_full`, `rejected`, `retries_exhausted`, or `shutdown` |
 | `winnow_webhook_rejections_total` | `source`, `status` | Configured Source name, and `400`, `401`, `405`, `413`, or `415` |
+| `winnow_events_total` | `source`, `repo`, `event`, `action`, `outcome`, `backfill`, `author_bot` | Configured Source name, repository, Event name, action, `matched`, `dropped`, or `unmatched`, and `true` or `false` for the last two labels |
+| `winnow_digests_total` | `digest`, `state` | Configured Digest name, and `sent`, `failed`, `skipped`, or `empty` |
 
 The Sink counter counts one failed delivery cycle to one Sink, after Discord retries finish or when enqueue fails.
 An Event sent to two Sinks can produce two failures. Live Events, accepted Backfills, Digests, and Sweep alert messages all count.
@@ -347,6 +350,23 @@ The webhook counter counts each rejected request for a configured Source once, u
 Status `400` includes body-read and parse errors. Status `401` includes missing and bad signatures.
 Status `405` means a wrong method, `413` means an oversized body, and `415` means an unsupported content type.
 Unknown Sources return `404` and do not create series. Unrelated paths, health checks, metrics scrapes, and successful webhook requests do not count.
+
+The Event counter counts each Event that winnow admits, live or Backfill, one time.
+A live Event counts only after the signature check and the parse. A rejected request and a ping create no series.
+A Backfill counts when the Sweep admits it. If its Route does not accept Backfills, the Backfill counts as `dropped`.
+`outcome` has the same value as the `outcome` field of the decision line in the logs.
+`action` is the action that the forge sends, with one exception. For a merged pull request, the forge sends `closed`, and winnow counts `merged`.
+Thus `closed` counts only the pull requests that did not merge.
+An Event without an action, for example `fork`, has an empty `action`. An Event without a repository, for example from a Sponsors listing, has an empty `repo`.
+`author_bot` is `true` when the Author is a Bot sender. The test is the same as the test of the `author_bot` matcher in the Rules.
+No label holds a sender login or an Author login.
+Each star sends a `watch` Event and a `star` Event, and both count. To count stars, use `event="star"`.
+Each delivery in a Burst counts one time, although winnow posts one card for the Burst.
+
+The Digest counter counts each Period of each Digest one time, when winnow writes the final state of the Period to the store.
+`sent` means that Discord took the message. `empty` means that the Period had no Events to show.
+`skipped` means that an older Period had no saved final state when a newer Period was due. `failed` means that Discord did not take the message after all retries.
+A failed try that winnow retries later does not count.
 
 Each Server keeps its own counters in memory. The counters reset on restart.
 Failures after the last successful scrape can disappear before Prometheus observes them.
