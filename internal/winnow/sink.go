@@ -31,7 +31,7 @@ type outbox struct {
 // sender of its worker.
 type sink struct {
 	name    string
-	pings   pings // the User map and the kinds of Ping that the Sink keeps
+	kinds   pingKinds // the kinds of Ping that the Sink keeps
 	queue   chan entry
 	discord *discordSender
 }
@@ -67,7 +67,7 @@ func newOutbox(cfg *Config, log *slog.Logger, failures *prometheus.CounterVec) *
 	ctx, stop := context.WithCancel(context.Background())
 	o := &outbox{sinks: map[string]*sink{}, icons: cfg.Icons, users: cfg.Users, log: log, failures: failures, drain: make(chan struct{}), stop: stop}
 	for name, sc := range cfg.Sinks {
-		sk := &sink{name: name, pings: pings{users: cfg.Users, kinds: sc.kinds}, queue: make(chan entry, queueSize), discord: newDiscordSender(sc)}
+		sk := &sink{name: name, kinds: sc.kinds, queue: make(chan entry, queueSize), discord: newDiscordSender(sc)}
 		o.sinks[name] = sk
 		o.wg.Go(func() { o.run(ctx, sk) })
 	}
@@ -75,22 +75,19 @@ func newOutbox(cfg *Config, log *slog.Logger, failures *prometheus.CounterVec) *
 }
 
 // deliver renders e for each Sink of route and puts the message on the queue
-// of the Sink. It makes the card of e and finds the logins in a comment once,
-// because both are slow for a large body. The message pings only for the kinds of Ping that the Sink keeps.
+// of the Sink. The Renderer prepares e once and applies each Sink's Ping kinds.
 // When the drain started or a queue is full, deliver writes a failed
 // delivery line for that Sink.
 func (o *outbox) deliver(e *Event, route *Route) {
 	attrs := e.logAttrs()
-	c, ping := draft(e, o.icons)
-	// Only a Sink that keeps comment Pings reads the logins.
-	mentioned := sync.OnceValue(func() []string { return commentMentions(e.Body, e.Sender, o.users) })
+	messageFor := render(e, o.icons, o.users)
 	// Under the read lock, the drain cannot start between the check and the
 	// enqueue, so a worker that stopped never misses a message.
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	for _, to := range route.To {
 		sk := o.sinks[to]
-		o.enqueue(sk, entry{route: route.Name, attrs: attrs}, func() message { return render(e, c, ping, sk.pings, mentioned) })
+		o.enqueue(sk, entry{route: route.Name, attrs: attrs}, func() message { return messageFor(sk.kinds) })
 	}
 }
 

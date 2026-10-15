@@ -600,7 +600,7 @@ func BenchmarkDeliverLargeBody(b *testing.B) {
 	o := &outbox{sinks: map[string]*sink{}, users: users, drain: make(chan struct{})}
 	route := &Route{Name: "all"}
 	for _, name := range []string{"a", "b", "c"} {
-		o.sinks[name] = &sink{name: name, pings: pings{users: users, kinds: map[string]bool{"comments": true}}, queue: make(chan entry, 1)}
+		o.sinks[name] = &sink{name: name, kinds: pingKinds{"comments": true}, queue: make(chan entry, 1)}
 		route.To = append(route.To, name)
 	}
 	for b.Loop() {
@@ -627,4 +627,47 @@ func TestRendererHidesPrivateSponsor(t *testing.T) {
 	if strings.Contains(string(body), "monalisa") || strings.Contains(h.logs.String(), "monalisa") {
 		t.Errorf("the message or the log shows the Private sponsor:\n%s\n%s", body, h.logs)
 	}
+}
+
+func TestRendererSharesWork(t *testing.T) {
+	e := &Event{Forge: "github", Name: "issue_comment", Action: "created", Sender: "octocat",
+		RepoURL: repoURL, Body: strings.Repeat("Text with #12 and @alice.\n\n", 2000)}
+	users := map[string]string{"alice": "111"}
+	comments := pingKinds{"comments": true}
+	allocs := func(kinds ...pingKinds) float64 {
+		return testing.AllocsPerRun(1, func() {
+			messageFor := render(e, nil, users)
+			for _, k := range kinds {
+				messageFor(k)
+			}
+		})
+	}
+	t.Run("card preparation", func(t *testing.T) {
+		one, three := allocs(nil), allocs(nil, nil, nil)
+		if three > one*1.2 {
+			t.Errorf("one Sink made %.0f allocations, three made %.0f; card preparation must be shared", one, three)
+		}
+	})
+	t.Run("comment scanning", func(t *testing.T) {
+		quiet, one, mixed := allocs(nil), allocs(comments), allocs(nil, comments, comments, nil)
+		if one < quiet+1000 {
+			t.Errorf("quiet Sink made %.0f allocations, comment Pings made %.0f; scanning must stay lazy", quiet, one)
+		}
+		if mixed > one*1.2 {
+			t.Errorf("one Sink made %.0f allocations, mixed Sinks made %.0f; comment scanning must be shared", one, mixed)
+		}
+	})
+	t.Run("independent messages", func(t *testing.T) {
+		messageFor := render(e, nil, users)
+		first := messageFor(comments)
+		quiet := messageFor(nil)
+		second := messageFor(comments)
+		if pingOf(first) != "<@111>" || pingOf(second) != "<@111>" || pingOf(quiet) != "" {
+			t.Fatal("each Sink must keep its own Ping policy")
+		}
+		first.AllowedMentions.Users[0] = "222"
+		if second.AllowedMentions.Users[0] != "111" {
+			t.Fatal("messages share a mutable Ping list")
+		}
+	})
 }
