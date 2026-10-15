@@ -365,7 +365,7 @@ Each delivery in a Burst counts one time, although winnow posts one card for the
 
 The Digest counter counts each Period of each Digest one time, when winnow writes the final state of the Period to the store.
 `sent` means that Discord took the message. `empty` means that the Period had no Events to show.
-`skipped` means that winnow was down for the full Period. `failed` means that Discord did not take the message after all retries.
+`skipped` means that an older Period had no saved final state when a newer Period was due. `failed` means that Discord did not take the message after all retries.
 A failed try that winnow retries later does not count.
 
 Each Server keeps its own counters in memory. The counters reset on restart.
