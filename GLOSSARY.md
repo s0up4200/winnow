@@ -72,6 +72,10 @@ _Avoid_: mention list, user mapping
 A Discord notification that winnow sends to a user in the User map, for a review request, an assignment, an `@login` in a new comment, or a new, cancelled, or changed sponsorship of a mapped Sponsors listing.
 _Avoid_: mention, notify
 
+**Ping kind**:
+The reason for a Ping: `review_requested`, `assigned`, `comments`, or `sponsorship`. A Sink lists the Ping kinds that it keeps.
+_Avoid_: mention type, ping type
+
 **Burst**:
 The deliveries of one action, by one sender, on one pull request or issue, that reach winnow within a few seconds of the first one. Winnow posts a Burst as one card.
 _Avoid_: batch, group, debounce

@@ -184,7 +184,7 @@ func TestNoBurst(t *testing.T) {
 	h.waitDiscord()
 }
 
-// A card pings at most maxTargetPings Targets, and names each one.
+// A card pings at most maxTargetPings people, and names each one.
 func TestBurstPingLimit(t *testing.T) {
 	config, want := burstConfig, []string{}
 	var ids []string

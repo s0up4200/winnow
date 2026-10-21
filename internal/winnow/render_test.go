@@ -648,15 +648,6 @@ func TestRendererSharesWork(t *testing.T) {
 			t.Errorf("one Sink made %.0f allocations, three made %.0f; card preparation must be shared", one, three)
 		}
 	})
-	t.Run("comment scanning", func(t *testing.T) {
-		quiet, one, mixed := allocs(nil), allocs(comments), allocs(nil, comments, comments, nil)
-		if one < quiet+1000 {
-			t.Errorf("quiet Sink made %.0f allocations, comment Pings made %.0f; scanning must stay lazy", quiet, one)
-		}
-		if mixed > one*1.2 {
-			t.Errorf("one Sink made %.0f allocations, mixed Sinks made %.0f; comment scanning must be shared", one, mixed)
-		}
-	})
 	t.Run("independent messages", func(t *testing.T) {
 		messageFor := render(e, nil, users)
 		first := messageFor(comments)

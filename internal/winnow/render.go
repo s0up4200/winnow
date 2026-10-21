@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -50,13 +48,6 @@ const shortBody = 400
 //
 // ponytail: a guess for the desktop width. A phone wraps sooner.
 const shortTitle = 60
-
-// maxPingUsers is the Discord limit of user IDs in allowed_mentions.
-const maxPingUsers = 100
-
-// maxTargetPings is the largest number of Targets that one card pings. A
-// Burst seldom names more people.
-const maxTargetPings = 10
 
 // maxExcerptBody is the number of bytes of a body that excerpt reads. Only
 // 4000 characters reach Discord, so a larger body only costs memory.
@@ -118,51 +109,22 @@ func draft(e *Event, icons map[string]string) (c card, ping bool) {
 	return c, true
 }
 
-// render prepares the shared card of e and returns a function that makes
-// one message for each Sink's Ping kinds. Comment scanning runs only when
-// needed, once per Event. Each call returns its own message and Ping list.
+// render prepares the shared card and the Pings of e, and returns a function
+// that makes one message for each Sink's Ping kinds. A Fallback message never
+// pings.
 func render(e *Event, icons, users map[string]string) func(pingKinds) message {
 	c, ping := draft(e, icons)
-	mentioned := sync.OnceValue(func() []string { return commentMentions(e.Body, e.Sender, users) })
+	pings := pingsOf(e, users)
 	return func(kinds pingKinds) message {
 		msg := message{Username: "GitHub", AvatarURL: githubIcon}
 		if e.Forge == "forgejo" {
 			msg.Username, msg.AvatarURL = "Forgejo", forgejoIcon
 		}
-		var mentions string // the Ping text
-		kind := e.Action    // the kind of the Target Ping
-		if e.Name == "sponsorship" {
-			kind = e.Name
+		var text string // the Ping text
+		if ping {
+			text, msg.AllowedMentions.Users = pings(kinds)
 		}
-		for _, t := range e.Targets {
-			id, ok := users[strings.ToLower(t)]
-			if !ok || !ping || !kinds[kind] || strings.EqualFold(t, e.Sender) || slices.Contains(msg.AllowedMentions.Users, id) || len(msg.AllowedMentions.Users) == maxTargetPings {
-				continue
-			}
-			if mentions != "" {
-				mentions += " "
-			}
-			mentions += "<@" + id + ">"
-			msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
-		}
-		if ping && kinds["comments"] && len(users) > 0 {
-			switch e.NameAction() {
-			case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
-				for _, id := range mentioned() {
-					mention := "<@" + id + ">"
-					if mentions != "" {
-						mention = " " + mention
-					}
-					// 2000 characters leave room for the rest of the message.
-					if len(msg.AllowedMentions.Users) == maxPingUsers || len(mentions)+len(mention) > 2000 {
-						break
-					}
-					mentions += mention
-					msg.AllowedMentions.Users = append(msg.AllowedMentions.Users, id)
-				}
-			}
-		}
-		msg.Components = layout(c, mentions)
+		msg.Components = layout(c, text)
 		return msg
 	}
 }
