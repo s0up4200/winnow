@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
@@ -11,6 +12,81 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/text"
 )
+
+// pingKindNames holds the Ping kinds. mentions: true means all of them.
+var pingKindNames = []string{"review_requested", "assigned", "comments", "sponsorship"}
+
+// pingKinds is the set of Ping kinds that a Sink keeps. Nil keeps no kind.
+type pingKinds map[string]bool
+
+// maxPingUsers is the Discord limit of user IDs in allowed_mentions.
+const maxPingUsers = 100
+
+// maxTargetPings is the largest number of people that one review request,
+// assignment, or sponsorship card pings. A Burst seldom names more people.
+const maxTargetPings = 10
+
+// pingsOf prepares the Pings of e for the User map users. It returns a
+// function that gives the Ping text and the user IDs for the Ping kinds of
+// one Sink. Comment scanning runs only when needed, once per Event. Each call
+// returns its own ID list.
+func pingsOf(e *Event, users map[string]string) func(pingKinds) (string, []string) {
+	kind, targets := pingTargets(e)
+	mentioned := sync.OnceValue(func() []string { return commentMentions(e.Body, e.Sender, users) })
+	return func(kinds pingKinds) (text string, ids []string) {
+		for _, t := range targets {
+			id, ok := users[strings.ToLower(t)]
+			if !ok || !kinds[kind] || strings.EqualFold(t, e.Sender) || slices.Contains(ids, id) || len(ids) == maxTargetPings {
+				continue
+			}
+			if text != "" {
+				text += " "
+			}
+			text += "<@" + id + ">"
+			ids = append(ids, id)
+		}
+		if kinds["comments"] && len(users) > 0 {
+			switch e.NameAction() {
+			case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
+				for _, id := range mentioned() {
+					mention := "<@" + id + ">"
+					if text != "" {
+						mention = " " + mention
+					}
+					// 2000 characters leave room for the rest of the message.
+					if len(ids) == maxPingUsers || len(text)+len(mention) > 2000 {
+						break
+					}
+					text += mention
+					ids = append(ids, id)
+				}
+			}
+		}
+		return text, ids
+	}
+}
+
+// pingTargets returns the Ping kind of e and the logins that it pings: the
+// people of a new review request or a new assignment, never a team, or the
+// sponsored account of a new, cancelled, or changed sponsorship. Only these
+// actions ping, so that each change pings once.
+func pingTargets(e *Event) (kind string, logins []string) {
+	switch {
+	case e.Sponsorship != nil:
+		switch e.Action {
+		case "created", "cancelled", "tier_changed":
+			return "sponsorship", []string{e.Sponsorship.Sponsorable}
+		}
+	case e.Action == "review_requested", e.Action == "assigned":
+		for _, s := range e.Subjects {
+			if !s.Team {
+				logins = append(logins, s.Name)
+			}
+		}
+		return e.Action, logins
+	}
+	return "", nil
+}
 
 // commentMarkdown parses comments as GitHub Flavored Markdown. Linkify turns
 // bare URLs into autolinks, so a login in a URL stays quiet. GitHub shows a

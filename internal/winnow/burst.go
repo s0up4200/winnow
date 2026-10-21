@@ -50,7 +50,7 @@ func joinsBurst(e *Event) bool {
 }
 
 // add puts e in its Burst. The first Event of a Burst starts the wait. A
-// later Event gives its Subjects and Targets to the first Event. After
+// later Event gives its Subjects to the first Event. After
 // flush, add delivers e at once.
 func (b *bursts) add(e *Event, route *Route) {
 	b.mu.Lock()

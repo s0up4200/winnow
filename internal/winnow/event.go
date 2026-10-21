@@ -40,7 +40,6 @@ type Event struct {
 	Body         string // text of the most specific object, for example the comment
 	SenderURL    string
 	SenderAvatar string
-	Targets      []string     // logins to ping: the requested reviewers, the assignees, or the sponsored account
 	Subjects     []Subject    // review_requested, review_request_removed, assigned, unassigned: the reviewers, the teams, or the assignees
 	Author       string       // login of the author of the pull request or the issue
 	AuthorURL    string       // profile of the Author
@@ -56,6 +55,7 @@ type Event struct {
 type Subject struct {
 	Name string // the login, or the team as org/slug
 	URL  string // the profile, or the page of the team
+	Team bool
 }
 
 // Push is the data of a push Event.
@@ -113,17 +113,12 @@ func (e *Event) logAttrs() []any {
 	return []any{"source", e.Source, "event", e.NameAction(), "repo", e.Repo, "delivery", e.Delivery}
 }
 
-// merge adds the Subjects and the Targets of o that e does not have yet to
-// e, in order. A login is not case-sensitive.
+// merge adds the Subjects of o that e does not have yet to e, in order. A
+// login is not case-sensitive.
 func (e *Event) merge(o *Event) {
 	for _, s := range o.Subjects {
 		if !slices.ContainsFunc(e.Subjects, func(x Subject) bool { return strings.EqualFold(x.Name, s.Name) }) {
 			e.Subjects = append(e.Subjects, s)
-		}
-	}
-	for _, t := range o.Targets {
-		if !slices.ContainsFunc(e.Targets, func(x string) bool { return strings.EqualFold(x, t) }) {
-			e.Targets = append(e.Targets, t)
 		}
 	}
 }
@@ -321,25 +316,18 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 		OwnerAvatar:  p.Repository.Owner.AvatarURL,
 		Tag:          p.Release.TagName,
 	}
-	// Only a new request or a new assignment pings, and never a team.
 	switch p.Action {
 	case "review_requested", "review_request_removed":
-		s := Subject{p.RequestedReviewer.Login, p.RequestedReviewer.HTMLURL}
+		s := Subject{Name: p.RequestedReviewer.Login, URL: p.RequestedReviewer.HTMLURL}
 		if t := p.RequestedTeam; s.Name == "" && t.Slug != "" {
-			s = Subject{e.Owner + "/" + t.Slug, t.HTMLURL}
+			s = Subject{Name: e.Owner + "/" + t.Slug, URL: t.HTMLURL, Team: true}
 		}
 		if s.Name != "" {
 			e.Subjects = []Subject{s}
 		}
-		if p.Action == "review_requested" && p.RequestedReviewer.Login != "" {
-			e.Targets = []string{p.RequestedReviewer.Login}
-		}
 	case "assigned", "unassigned":
 		if p.Assignee.Login != "" {
-			e.Subjects = []Subject{{p.Assignee.Login, p.Assignee.HTMLURL}}
-		}
-		if p.Action == "assigned" && p.Assignee.Login != "" {
-			e.Targets = []string{p.Assignee.Login}
+			e.Subjects = []Subject{{Name: p.Assignee.Login, URL: p.Assignee.HTMLURL}}
 		}
 	}
 	var issue ghTopic
@@ -411,11 +399,6 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 			sponsor = *s.Sponsor
 		}
 		e.Sender, e.SenderBot, e.SenderURL, e.SenderAvatar = sponsor.Login, isBot(sponsor), sponsor.HTMLURL, sponsor.AvatarURL
-		// Only these actions ping, so that each change pings once.
-		switch p.Action {
-		case "created", "cancelled", "tier_changed":
-			e.Targets = []string{s.Sponsorable.Login}
-		}
 	}
 	if forge == "forgejo" {
 		mapForgejo(e, h.Get("X-Forgejo-Event-Type"), &p)

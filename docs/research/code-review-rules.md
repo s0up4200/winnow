@@ -112,7 +112,7 @@ The PR numbers are the same in this repository, because each squash commit on `m
 | Winnow stores a live Event before its Sweep claim. | ADR 0008, #64 | No. |
 | The first matching Route wins. | ADR 0004 | Yes, `TestFirstMatchingRouteWins`. |
 | A Backfill goes to the Sinks only when its Route accepts Backfills. | ADR 0008 | Yes, the sweep tests. |
-| A delivery can be 25 MiB. Work on body text stops at 256 KiB. | `maxBody` in `server.go`, `maxExcerptBody` in `render.go`, `maxMentionScan` in `mentions.go` | No. |
+| A delivery can be 25 MiB. Work on body text stops at 256 KiB. | `maxBody` in `server.go`, `maxExcerptBody` in `render.go`, `maxMentionScan` in `ping.go` | No. |
 | Winnow renders an Event once for each Sink. | `render.go`, `sink.go` | No. |
 | A test never reaches a real host. The Sweep client uses `https://api.github.com` by default. | `config.go`, `harness_test.go` | No. |
 | The README steps, its Compose example, and `winnow.example.yaml` start winnow. | README | Partly. A test loads the sample configuration. No test reads the Compose example. |
