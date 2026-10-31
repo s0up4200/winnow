@@ -126,13 +126,17 @@ icons:
   autobrr: https://github.com/autobrr.png?size=128
 
 # One weekly message for autobrr. It also counts the forks that the
-# stars-forks Route drops. Set include_other: true to also count the Events
-# outside the named counts, for example CI runs and comments. Winnow keeps
-# the store of the Digests in winnow.db next to this file, so this directory
-# must be writable.
+# stars-forks Route drops. The event list keeps only the counted Events in
+# winnow.db. To also count the Events outside the named counts, for example
+# CI runs and comments, remove the event list and set include_other: true.
+# Winnow keeps the store of the Digests in winnow.db next to this file, so
+# this directory must be writable.
 digests:
   - name: autobrr-weekly
     every: weekly
     at: "09:00"
     to: autobrr
-    match: { owner: autobrr, not: { author_bot: true } }
+    match:
+      owner: autobrr
+      event: [pull_request, issues, release, star, fork, discussion]
+      not: { author_bot: true }

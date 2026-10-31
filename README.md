@@ -196,6 +196,8 @@ The counts include only the Events that winnow received. The first Period of a n
 
 Winnow keeps each Other Event that `match` matches, also when `include_other` is `false`. A change to `include_other` takes effect when winnow restarts. The next message uses the new value for the whole Period. So `true` also includes the Other Events from before the change. Winnow does not send a Period again if it already sent it, skipped it, found it empty, or gave up on it.
 
+Winnow deletes no Event from `winnow.db`. An org with many CI runs sends many Other Events. In one install, `owner: autobrr` kept about 17,000 Events each day, and the database grew by about 20 MB each day. If you do not need the Other line, add an `event:` list of the counted Events to `match`, as in `winnow.example.yaml`. Winnow then keeps only those Events.
+
 If winnow is down at the send time, it sends the message of the last Period when it starts. It skips each older Period and writes a `digest skipped` line. If Discord does not take the message, winnow tries again each hour. After 24 hours, it writes a `digest failed` line. Winnow keeps the tries in memory. If winnow restarts in these 24 hours, the start handles the Period as after downtime.
 
 ### Icons
