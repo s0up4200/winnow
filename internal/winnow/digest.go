@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"iter"
 	"maps"
 	"net/url"
 	"slices"
@@ -159,7 +160,7 @@ const topRepos = 6
 // zero time. When all repositories have one owner, the message names the
 // owner and shows the Icon of the owner from icons. It returns false when d
 // includes no Event.
-func summarize(d *Digest, p period, from time.Time, events []Event, icons map[string]string) (message, bool) {
+func summarize(d *Digest, p period, from time.Time, events iter.Seq[Event], icons map[string]string) (message, bool) {
 	type repo struct {
 		name, url, forge string
 		counts
@@ -167,8 +168,8 @@ func summarize(d *Digest, p period, from time.Time, events []Event, icons map[st
 	var total counts
 	repos := map[string]*repo{}
 	n := 0
-	for i := range events {
-		e := &events[i]
+	for ev := range events {
+		e := &ev
 		// The current Rules decide for the whole Period, so that a narrower
 		// match also leaves out the Events from before the change. GitHub
 		// sends watch.started and star.created for one star, so watch does
@@ -492,12 +493,15 @@ func (s *Server) sendDigest(ctx context.Context, d *Digest, p period, first, now
 	if p.start.Before(first) {
 		from = first
 	}
-	events, err := s.store.events(d.Name, cmp.Or(from, p.start), p.end)
+	var err error
+	events := func(yield func(Event) bool) {
+		err = s.store.events(d.Name, cmp.Or(from, p.start), p.end, yield)
+	}
+	msg, ok := summarize(d, p, from, events, s.cfg.Icons)
 	if err != nil {
 		return err
 	}
 	k := tryKey{d.Name, p.key()}
-	msg, ok := summarize(d, p, from, events, s.cfg.Icons)
 	if !ok {
 		return s.finishPeriod(d, k.period, "empty")
 	}

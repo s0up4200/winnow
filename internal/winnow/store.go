@@ -149,28 +149,31 @@ func (s *store) addEvent(e *Event, at time.Time, digests []string) error {
 	return tx.Commit()
 }
 
-// events returns the stored Events of the Digest name that winnow received
-// in [from, to), in the order that winnow received them.
-func (s *store) events(name string, from, to time.Time) ([]Event, error) {
+// events calls yield with each stored Event of the Digest name that winnow
+// received in [from, to), in the order that winnow received them, and stops
+// when yield returns false. It holds one Event at a time, so that a Period
+// with many Events does not hold all of them in memory.
+func (s *store) events(name string, from, to time.Time, yield func(Event) bool) error {
 	rows, err := s.db.Query(`SELECT e.event FROM events e JOIN digest_events d ON d.event = e.id
 		WHERE d.digest = ? AND e.received_at >= ? AND e.received_at < ? ORDER BY e.received_at, e.id`, name, from.Unix(), to.Unix())
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	var es []Event
 	for rows.Next() {
 		var data []byte
 		if err := rows.Scan(&data); err != nil {
-			return nil, err
+			return err
 		}
 		var e Event
 		if err := json.Unmarshal(data, &e); err != nil {
-			return nil, err
+			return err
 		}
-		es = append(es, e)
+		if !yield(e) {
+			return nil
+		}
 	}
-	return es, rows.Err()
+	return rows.Err()
 }
 
 // firstRun returns the first-run time of the Digest key. When the Digest
