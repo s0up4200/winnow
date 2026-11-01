@@ -484,6 +484,8 @@ func (s *Server) finishPeriod(d *Digest, period, state string) error {
 // and no message. Before the first send of a step, it runs each Sweep, so
 // that the counts include the Backfills.
 func (s *Server) sendDigest(ctx context.Context, d *Digest, p period, first, now time.Time) error {
+	// A crash during the count leaves this line as the last trace of the Digest.
+	s.log.Info("digest started", "digest", d.Name, "period", p.key())
 	if err := s.sweepDue(ctx, now, true); err != nil {
 		s.log.Warn("digest can count too few Events", "digest", d.Name, "period", p.key(), "error", err)
 	}
