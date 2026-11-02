@@ -112,9 +112,9 @@ func draft(e *Event, icons map[string]string) (c card, ping bool) {
 // render prepares the shared card and the Pings of e, and returns a function
 // that makes one message for each Sink's Ping kinds. A Fallback message never
 // pings.
-func render(e *Event, icons, users map[string]string) func(pingKinds) message {
+func render(e *Event, icons, users map[string]string, teams map[string][]string) func(pingKinds) message {
 	c, ping := draft(e, icons)
-	pings := pingsOf(e, users)
+	pings := pingsOf(e, users, teams)
 	return func(kinds pingKinds) message {
 		msg := message{Username: "GitHub", AvatarURL: githubIcon}
 		if e.Forge == "forgejo" {

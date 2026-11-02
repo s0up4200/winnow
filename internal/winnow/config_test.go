@@ -135,6 +135,13 @@ routes:
 		{"mentions that is a map", "sinks:\n  a: { discord: x, mentions: { assigned: true } }\n", "want true, false, or a list of kinds"},
 		{"mentions with no value", "sinks:\n  a: { discord: x, mentions: }\n", `sinks.a.mentions: want true, false, or a list of kinds, not ""`},
 		{"mentions: yes", "sinks:\n  a: { discord: x, mentions: yes }\n", "want true, false, or a list of kinds"},
+		{"team key with no slash", "teams:\n  autobrr: [a]\n", "teams.autobrr: want org/slug"},
+		{"team key with no org", "teams:\n  /devs: [a]\n", "teams./devs: want org/slug"},
+		{"team key with no slug", "teams:\n  autobrr/: [a]\n", "teams.autobrr/: want org/slug"},
+		{"team key with two slashes", "teams:\n  autobrr/devs/x: [a]\n", "teams.autobrr/devs/x: want org/slug"},
+		{"team key with a space", "teams:\n  autobrr/rls review: [a]\n", "teams.autobrr/rls review: want org/slug"},
+		{"team with an empty list", "teams:\n  autobrr/devs: []\n", "teams.autobrr/devs: the list of members is empty"},
+		{"team with no value", "teams:\n  autobrr/devs:\n", "teams.autobrr/devs: the list of members is empty"},
 		{"backfill on a drop route", `
 routes:
   - match: {}
@@ -210,6 +217,27 @@ routes:
 		`route typo: event "pull_requests" is not a known Event name`,
 		`sinks.dead: no route or digest sends to this sink`,
 	}
+	if !slices.Equal(warns, want) {
+		t.Errorf("warnings = %q, want %q", warns, want)
+	}
+}
+
+// Load makes the Team map lowercase and warns about each member that is not
+// in the User map.
+func TestLoadTeams(t *testing.T) {
+	cfg, errs, warns := Load([]byte(`
+users:
+  Alice: "111"
+teams:
+  AutoBrr/RLS-Review: [ALICE, Bobb]
+`))
+	if len(errs) > 0 {
+		t.Fatalf("errors = %v, want none", errs)
+	}
+	if want := map[string][]string{"autobrr/rls-review": {"alice", "bobb"}}; !maps.EqualFunc(cfg.Teams, want, slices.Equal) {
+		t.Errorf("teams = %q, want %q", cfg.Teams, want)
+	}
+	want := []string{`teams.AutoBrr/RLS-Review: "Bobb" is not in users, so it gets no Ping`}
 	if !slices.Equal(warns, want) {
 		t.Errorf("warnings = %q, want %q", warns, want)
 	}

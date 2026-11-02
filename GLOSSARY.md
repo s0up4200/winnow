@@ -68,8 +68,12 @@ _Avoid_: autolink, mention
 The list that links a forge login to a Discord user. Winnow pings only users in this list.
 _Avoid_: mention list, user mapping
 
+**Team map**:
+The list that links a forge team, as `org/slug`, to the logins of its members. Winnow pings each member through the User map.
+_Avoid_: team mapping, group, role map
+
 **Ping**:
-A Discord notification that winnow sends to a user in the User map, for a review request, an assignment, an `@login` in a new comment, or a new, cancelled, or changed sponsorship of a mapped Sponsors listing.
+A Discord notification that winnow sends to a user in the User map, for a review request, an assignment, an `@login` in a new comment, an `@org/team` mention of a team in the Team map, or a new, cancelled, or changed sponsorship of a mapped Sponsors listing.
 _Avoid_: mention, notify
 
 **Ping kind**:

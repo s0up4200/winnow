@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -18,9 +19,12 @@ import (
 
 // Config is the loaded configuration file.
 type Config struct {
-	Listen  string                `yaml:"listen"`
-	Sources map[string]Source     `yaml:"sources"`
-	Users   map[string]string     `yaml:"users"` // the User map: lowercase forge login to Discord user ID
+	Listen  string            `yaml:"listen"`
+	Sources map[string]Source `yaml:"sources"`
+	Users   map[string]string `yaml:"users"` // the User map: lowercase forge login to Discord user ID
+	// Teams is the Team map: a lowercase org/slug to the lowercase logins of
+	// its members.
+	Teams   map[string][]string   `yaml:"teams"`
 	Sinks   map[string]SinkConfig `yaml:"sinks"`
 	Routes  []Route               `yaml:"routes"`
 	Bots    []string              `yaml:"bots"` // logins of Bot senders, compared without case
@@ -132,6 +136,10 @@ func parsePingKinds(n *yaml.Node) (pingKinds, error) {
 	return k, nil
 }
 
+// teamKey matches a Team map key: org/slug, in the characters that a comment
+// mention of a team can have.
+var teamKey = regexp.MustCompile(`^[[:alnum:]_][[:alnum:]_.-]*/[[:alnum:]_-]+$`)
+
 // Load parses a configuration file. Startup and `winnow check` both call it.
 // An error stops startup. A warning does not.
 func Load(data []byte) (cfg *Config, errs []error, warns []string) {
@@ -169,6 +177,24 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		users[strings.ToLower(login)] = id
 	}
 	cfg.Users = users
+	teams := make(map[string][]string, len(cfg.Teams))
+	for _, key := range slices.Sorted(maps.Keys(cfg.Teams)) {
+		if !teamKey.MatchString(key) {
+			errs = append(errs, fmt.Errorf("teams.%s: want org/slug", key))
+		}
+		if len(cfg.Teams[key]) == 0 {
+			errs = append(errs, fmt.Errorf("teams.%s: the list of members is empty", key))
+		}
+		var members []string
+		for _, login := range cfg.Teams[key] {
+			if _, ok := users[strings.ToLower(login)]; !ok {
+				warns = append(warns, fmt.Sprintf("teams.%s: %q is not in users, so it gets no Ping", key, login))
+			}
+			members = append(members, strings.ToLower(login))
+		}
+		teams[strings.ToLower(key)] = members
+	}
+	cfg.Teams = teams
 	icons := make(map[string]string, len(cfg.Icons))
 	for _, key := range slices.Sorted(maps.Keys(cfg.Icons)) {
 		v := cfg.Icons[key]

@@ -78,9 +78,9 @@ A Sink pings a Discord user only when the Sink keeps the kind of Ping and the us
 
 The kinds are:
 
-- `review_requested`: a Ping to the requested reviewer of a pull request.
+- `review_requested`: a Ping to the requested reviewer of a pull request. A review request to a team in `teams:` pings the members of the team. One review request card pings at most 10 people.
 - `assigned`: a Ping to the assignee of an issue or a pull request. A Forgejo assignment does not ping, because the Forgejo payload does not name the assignee.
-- `comments`: a Ping for each direct `@login` mention in a new comment.
+- `comments`: a Ping for each direct `@login` mention in a new comment, and for each member of a team in `teams:` that an `@org/team` mention names.
 - `sponsorship`: a Ping to the sponsored account of a GitHub Sponsors listing, for a new sponsorship, a cancelled sponsorship, and a changed tier. The actions `edited`, `pending_cancellation`, and `pending_tier_change` do not ping. A Private sponsorship also pings. The Ping names only the sponsored account. For the Sponsors listing of an organization, put the organization login in `users:` with the Discord user ID of the person who gets the Ping.
 
 If the Sink does not keep the kind, the Sink still gets the message, but without a Ping. Winnow does not start when the list has an unknown kind. The error names the valid kinds. Winnow also does not start when the `mentions` key has no value.
@@ -102,11 +102,21 @@ Login matching ignores letter case. Repeated mentions and aliases produce one pi
 
 Comment pings apply to new issue comments, comments on pull requests, code review comments, and discussion comments on GitHub and Forgejo. A submitted review summary does not cause comment pings. Edits, deletions, and issue, pull request, or discussion bodies do not cause comment pings.
 
-Mentions in blockquotes, inline code, fenced and indented code blocks, URLs, image alt text, hidden HTML comments, lines of raw HTML such as `<details>` without a blank line after it, footnote labels, and escaped mentions stay quiet. Team mentions and unmapped users stay quiet. Raw Discord mention text cannot add pings. Pings appear above the message box, and the comment keeps its forge login text. A mention beyond the excerpt limit still pings. A comment larger than 256 KiB causes no pings. GitHub comments are never that large. Each message pings distinct users in mention order, up to 100 users and 2,000 characters. Excess users stay quiet so that Discord can accept the comment notification.
+Mentions in blockquotes, inline code, fenced and indented code blocks, URLs, image alt text, hidden HTML comments, lines of raw HTML such as `<details>` without a blank line after it, footnote labels, and escaped mentions stay quiet. Unmapped users and teams that are not in `teams:` stay quiet. A team mention pings the mapped members of the team, never the user of the org login. Raw Discord mention text cannot add pings. Pings appear above the message box, and the comment keeps its forge login text. A mention beyond the excerpt limit still pings. A comment larger than 256 KiB causes no pings. GitHub comments are never that large. Each message pings distinct users in mention order, up to 100 users and 2,000 characters. Excess users stay quiet so that Discord can accept the comment notification.
 
 ```yaml
 users:
   octocat: "123456789012345678"   # forge login: Discord user ID
+```
+
+To ping the members of a team, add the team to `teams:` as `org/slug`, with the forge logins of its members. Winnow pings each member through `users:`. A member who is not in `users:` gets no Ping, and winnow writes a warning at start. Winnow does not start when a team key is not `org/slug` or a team has no members. When a team changes on the forge, update `teams:`.
+
+```yaml
+users:
+  alice: "123456789012345678"
+  bob: "234567890123456789"
+teams:
+  autobrr/rls-review: [alice, bob]
 ```
 
 A Forgejo assignment does not ping. The Forgejo payload does not name the assigned user.
