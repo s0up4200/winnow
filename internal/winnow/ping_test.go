@@ -11,17 +11,22 @@ import (
 )
 
 // pingUsers is the User map of the pingsOf tests. codertocat is the sender
-// of each Event, and alias is a second login of the user 111.
-var pingUsers = map[string]string{"octocat": "111", "codertocat": "222", "other": "333", "alias": "111", "autobrr/devs": "444"}
+// of each Event, alias is a second login of the user 111, and autobrr is an
+// org login.
+var pingUsers = map[string]string{"octocat": "111", "codertocat": "222", "other": "333", "alias": "111", "autobrr": "555"}
+
+// pingTeams is the Team map of the pingsOf tests. stranger is not in
+// pingUsers.
+var pingTeams = map[string][]string{"autobrr/devs": {"other", "codertocat", "octocat", "stranger"}, "autobrr/rls-review": {"octocat"}}
 
 // allPingKinds keeps each Ping kind, like mentions: true.
 var allPingKinds = pingKinds{"review_requested": true, "assigned": true, "comments": true, "sponsorship": true}
 
 // assertPings checks the Ping text and the user IDs that pingsOf gives e for
 // kinds. want lists the user IDs in order.
-func assertPings(t *testing.T, e *Event, users map[string]string, kinds pingKinds, want ...string) {
+func assertPings(t *testing.T, e *Event, users map[string]string, teams map[string][]string, kinds pingKinds, want ...string) {
 	t.Helper()
-	text, ids := pingsOf(e, users)(kinds)
+	text, ids := pingsOf(e, users, teams)(kinds)
 	var wantText []string
 	for _, id := range want {
 		wantText = append(wantText, "<@"+id+">")
@@ -39,6 +44,7 @@ func TestPings(t *testing.T) {
 		}
 		return s
 	}
+	team := func(name string) []Subject { return []Subject{{Name: name, Team: true}} }
 	sponsorship := &Sponsorship{Sponsorable: "octocat"}
 	tests := []struct {
 		name  string
@@ -54,7 +60,11 @@ func TestPings(t *testing.T) {
 		{"no ping for another action", Event{Name: "pull_request", Action: "edited", Subjects: people("octocat")}, allPingKinds, nil},
 		{"no ping for a removed review request", Event{Name: "pull_request", Action: "review_request_removed", Subjects: people("octocat")}, allPingKinds, nil},
 		{"no ping for an unassignment", Event{Name: "issues", Action: "unassigned", Subjects: people("octocat")}, allPingKinds, nil},
-		{"never a team", Event{Name: "pull_request", Action: "review_requested", Subjects: []Subject{{Name: "autobrr/devs", Team: true}}}, allPingKinds, nil},
+		{"a mapped team pings its members", Event{Name: "pull_request", Action: "review_requested", Subjects: team("AutoBrr/Devs")}, allPingKinds, []string{"333", "111"}},
+		{"a team that is not mapped pings no one", Event{Name: "pull_request", Action: "review_requested", Subjects: team("autobrr/other")}, allPingKinds, nil},
+		{"a direct reviewer in the team gets one Ping", Event{Name: "pull_request", Action: "review_requested",
+			Subjects: append(people("octocat"), team("autobrr/devs")...)}, allPingKinds, []string{"111", "333"}},
+		{"team review request kind off", Event{Name: "pull_request", Action: "review_requested", Subjects: team("autobrr/devs")}, pingKinds{"comments": true}, nil},
 		{"a Burst pings each person once, in order", Event{Name: "pull_request", Action: "review_requested",
 			Subjects: append([]Subject{{Name: "autobrr/devs", Team: true}}, people("other", "codertocat", "octocat", "alias")...)}, allPingKinds, []string{"333", "111"}},
 		{"review request kind off", Event{Name: "pull_request", Action: "review_requested", Subjects: people("octocat")}, pingKinds{"assigned": true, "comments": true}, nil},
@@ -67,7 +77,7 @@ func TestPings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.e.Sender = "codertocat"
-			assertPings(t, &tt.e, pingUsers, tt.kinds, tt.want...)
+			assertPings(t, &tt.e, pingUsers, pingTeams, tt.kinds, tt.want...)
 		})
 	}
 }
@@ -111,13 +121,56 @@ func TestCommentMentionText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertPings(t, commentEvent(tt.body), pingUsers, allPingKinds, "333")
+			assertPings(t, commentEvent(tt.body), pingUsers, pingTeams, allPingKinds, "333")
 		})
 	}
 }
 
+func TestTeamMentions(t *testing.T) {
+	tests := []struct {
+		name, body string
+		want       []string
+	}{
+		{"team mention", "cc @autobrr/rls-review: triage found that this needs a change in autobrr/rls.", []string{"111"}},
+		{"members in list order, without the sender", "@autobrr/devs", []string{"333", "111"}},
+		{"team in other case", "@AutoBrr/DEVS.", []string{"333", "111"}},
+		{"user named alone and through a team", "@octocat @autobrr/devs", []string{"111", "333"}},
+		{"team that is not mapped", "@autobrr/unknown", nil},
+		{"org alone and a team", "@autobrr @autobrr/rls-review", []string{"555", "111"}},
+		{"team and then org alone", "@autobrr/rls-review and @autobrr", []string{"111", "555"}},
+		{"quote", "> @autobrr/rls-review", nil},
+		{"code", "`@autobrr/rls-review`\n\n    @autobrr/rls-review", nil},
+		{"escaped", "\\@autobrr/rls-review", nil},
+		{"URL", "https://example.invalid/@autobrr/rls-review", nil},
+		{"empty slug", "@autobrr/ @autobrr/-", nil},
+		{"path after the slug", "@autobrr/rls-review/x", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertPings(t, commentEvent(tt.body), pingUsers, pingTeams, allPingKinds, tt.want...)
+		})
+	}
+}
+
+// A team review request pings at most maxTargetPings people, and a team
+// mention at most maxPingUsers.
+func TestTeamPingLimits(t *testing.T) {
+	users := map[string]string{}
+	var members, want []string
+	for i := range 101 {
+		login, id := fmt.Sprintf("user%d", i), fmt.Sprintf("%03d", i+1)
+		users[login] = id
+		members = append(members, login)
+		want = append(want, id)
+	}
+	teams := map[string][]string{"autobrr/big": members}
+	review := &Event{Name: "pull_request", Action: "review_requested", Sender: "codertocat", Subjects: []Subject{{Name: "autobrr/big", Team: true}}}
+	assertPings(t, review, users, teams, allPingKinds, want[:maxTargetPings]...)
+	assertPings(t, commentEvent("@autobrr/big"), users, teams, allPingKinds, want[:maxPingUsers]...)
+}
+
 func TestCommentMentionScanLimit(t *testing.T) {
-	assertPings(t, commentEvent("@octocat\n"+strings.Repeat("a\n\n", maxMentionScan/3)), pingUsers, allPingKinds)
+	assertPings(t, commentEvent("@octocat\n"+strings.Repeat("a\n\n", maxMentionScan/3)), pingUsers, pingTeams, allPingKinds)
 }
 
 func TestCommentMentionLimits(t *testing.T) {
@@ -146,7 +199,7 @@ func TestCommentMentionLimits(t *testing.T) {
 					wantIDs = append(wantIDs, id)
 				}
 			}
-			assertPings(t, commentEvent(body.String()), users, allPingKinds, wantIDs...)
+			assertPings(t, commentEvent(body.String()), users, nil, allPingKinds, wantIDs...)
 		})
 	}
 }
@@ -159,7 +212,7 @@ func TestPingsShareCommentScan(t *testing.T) {
 	comments := pingKinds{"comments": true}
 	allocs := func(kinds ...pingKinds) float64 {
 		return testing.AllocsPerRun(1, func() {
-			pings := pingsOf(e, users)
+			pings := pingsOf(e, users, nil)
 			for _, k := range kinds {
 				pings(k)
 			}
@@ -435,6 +488,38 @@ func TestPingKinds(t *testing.T) {
 				assertMentions(t, got[sink], want)
 			}
 		})
+	}
+}
+
+// A team mention in a new comment pings the mapped members of the team in a
+// Sink that keeps the comments kind, and no one in a Sink that does not.
+func TestTeamMentionPings(t *testing.T) {
+	h := newHarness(t, `
+sources:
+  github-autobrr: { secret: test-secret }
+users:
+  alice: "111"
+  bob: "222"
+teams:
+  autobrr/rls-review: [alice, bob]
+sinks:
+  ping: { discord: https://discord.example.invalid/api/webhooks/1/token, mentions: [comments] }
+  quiet: { discord: https://discord.example.invalid/api/webhooks/2/token, mentions: [review_requested] }
+routes:
+  - match: {}
+    to: [ping, quiet]
+`)
+	body := commentPayload(t, "github/issue_comment_created", "cc @autobrr/rls-review: triage found that this needs a change in autobrr/rls.")
+	if got := h.do(signedDelivery("github-autobrr", "issue_comment", body)).Code; got != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", got)
+	}
+	for range 2 {
+		r := h.waitDiscord()
+		want := `{"allowed_mentions": {"parse": []}}`
+		if r.Sink == "ping" {
+			want = `{"content": "<@111> <@222>", "allowed_mentions": {"parse": [], "users": ["111", "222"]}}`
+		}
+		assertMentions(t, r.Body, want)
 	}
 }
 

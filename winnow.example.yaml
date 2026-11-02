@@ -10,6 +10,15 @@ sources:
 bots:
   - renovate        # Forgejo Renovate account
 
+# Each forge login and the Discord user ID that gets its Pings.
+users:
+  alice: "123456789012345678"
+  bob: "234567890123456789"
+
+# A team mention or a team review request pings each member through users.
+teams:
+  autobrr/rls-review: [alice, bob]
+
 sinks:
   security: { discord: "${WINNOW_DISCORD_SECURITY}" }
   autobrr:  { discord: "${WINNOW_DISCORD_AUTOBRR}" }

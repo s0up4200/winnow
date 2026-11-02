@@ -26,13 +26,13 @@ const maxPingUsers = 100
 // assignment, or sponsorship card pings. A Burst seldom names more people.
 const maxTargetPings = 10
 
-// pingsOf prepares the Pings of e for the User map users. It returns a
-// function that gives the Ping text and the user IDs for the Ping kinds of
-// one Sink. Comment scanning runs only when needed, once per Event. Each call
-// returns its own ID list.
-func pingsOf(e *Event, users map[string]string) func(pingKinds) (string, []string) {
-	kind, targets := pingTargets(e)
-	mentioned := sync.OnceValue(func() []string { return commentMentions(e.Body, e.Sender, users) })
+// pingsOf prepares the Pings of e for the User map users and the Team map
+// teams. It returns a function that gives the Ping text and the user IDs for
+// the Ping kinds of one Sink. Comment scanning runs only when needed, once per
+// Event. Each call returns its own ID list.
+func pingsOf(e *Event, users map[string]string, teams map[string][]string) func(pingKinds) (string, []string) {
+	kind, targets := pingTargets(e, teams)
+	mentioned := sync.OnceValue(func() []string { return commentMentions(e.Body, e.Sender, users, teams) })
 	return func(kinds pingKinds) (text string, ids []string) {
 		for _, t := range targets {
 			id, ok := users[strings.ToLower(t)]
@@ -67,10 +67,11 @@ func pingsOf(e *Event, users map[string]string) func(pingKinds) (string, []strin
 }
 
 // pingTargets returns the Ping kind of e and the logins that it pings: the
-// people of a new review request or a new assignment, never a team, or the
-// sponsored account of a new, cancelled, or changed sponsorship. Only these
-// actions ping, so that each change pings once.
-func pingTargets(e *Event) (kind string, logins []string) {
+// people of a new review request or a new assignment, with the members of
+// each team in teams in place of the team, or the sponsored account of a new,
+// cancelled, or changed sponsorship. Only these actions ping, so that each
+// change pings once.
+func pingTargets(e *Event, teams map[string][]string) (kind string, logins []string) {
 	switch {
 	case e.Sponsorship != nil:
 		switch e.Action {
@@ -79,7 +80,9 @@ func pingTargets(e *Event) (kind string, logins []string) {
 		}
 	case e.Action == "review_requested", e.Action == "assigned":
 		for _, s := range e.Subjects {
-			if !s.Team {
+			if s.Team {
+				logins = append(logins, teams[strings.ToLower(s.Name)]...)
+			} else {
 				logins = append(logins, s.Name)
 			}
 		}
@@ -99,23 +102,34 @@ var commentMarkdown = goldmark.New(goldmark.WithExtensions(extension.GFM, extens
 // a GitHub comment always fits.
 const maxMentionScan = 256 << 10
 
-var mentionLogin = regexp.MustCompile(`@([[:alnum:]_][[:alnum:]_.-]*)`)
+// mentionLogin matches @login and @org/slug. Group 2 is the /slug of a team.
+var mentionLogin = regexp.MustCompile(`@([[:alnum:]_][[:alnum:]_.-]*)(/[[:alnum:]_-]+)?`)
 
-// commentMentions reads a comment and returns mapped IDs in text order.
+// commentMentions reads a comment and returns mapped IDs in text order. A
+// mention of a team in teams adds its members in list order, never the org.
 // It leaves quoted text, code, HTML blocks and tags, and URLs quiet. A comment
 // longer than maxMentionScan returns no IDs.
-func commentMentions(body, sender string, users map[string]string) []string {
+func commentMentions(body, sender string, users map[string]string, teams map[string][]string) []string {
 	if len(body) > maxMentionScan {
 		return nil
 	}
 	src := []byte(body)
 	var ids []string
+	add := func(login string) {
+		if strings.EqualFold(login, sender) {
+			return
+		}
+		if id, ok := users[strings.ToLower(login)]; ok && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	expanded := map[string]bool{} // a repeated team mention adds no one, so expand each team once
 	// scan finds the mentions in src[start:stop].
 	scan := func(start, stop int) {
 		// Take one match at a time. A long comment can hold millions. A
 		// message cannot ping more than maxPingUsers, so stop there.
 		for start < stop && len(ids) < maxPingUsers {
-			loc := mentionLogin.FindIndex(src[start:stop])
+			loc := mentionLogin.FindSubmatchIndex(src[start:stop])
 			if loc == nil {
 				return
 			}
@@ -126,12 +140,16 @@ func commentMentions(body, sender string, users map[string]string) []string {
 			if escapedAt(body, i) || isWord(before) || strings.ContainsRune("<@./+-", before) || isWord(after) || after == '/' {
 				continue
 			}
-			login := strings.TrimRight(body[i+1:j], ".")
-			if strings.EqualFold(login, sender) {
+			if loc[4] < 0 {
+				add(strings.TrimRight(body[i+1:j], "."))
 				continue
 			}
-			if id, ok := users[strings.ToLower(login)]; ok && !slices.Contains(ids, id) {
-				ids = append(ids, id)
+			team := strings.ToLower(body[i+1 : j])
+			if !expanded[team] {
+				expanded[team] = true
+				for _, member := range teams[team] {
+					add(member)
+				}
 			}
 		}
 	}

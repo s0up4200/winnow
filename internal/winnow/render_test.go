@@ -636,7 +636,7 @@ func TestRendererSharesWork(t *testing.T) {
 	comments := pingKinds{"comments": true}
 	allocs := func(kinds ...pingKinds) float64 {
 		return testing.AllocsPerRun(1, func() {
-			messageFor := render(e, nil, users)
+			messageFor := render(e, nil, users, nil)
 			for _, k := range kinds {
 				messageFor(k)
 			}
@@ -649,7 +649,7 @@ func TestRendererSharesWork(t *testing.T) {
 		}
 	})
 	t.Run("independent messages", func(t *testing.T) {
-		messageFor := render(e, nil, users)
+		messageFor := render(e, nil, users, nil)
 		first := messageFor(comments)
 		quiet := messageFor(nil)
 		second := messageFor(comments)

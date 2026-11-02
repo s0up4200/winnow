@@ -17,8 +17,9 @@ const queueSize = 100
 // worker for each Sink, and it writes each failed delivery line.
 type outbox struct {
 	sinks    map[string]*sink
-	icons    map[string]string // the Icons of the configuration
-	users    map[string]string // the User map
+	icons    map[string]string   // the Icons of the configuration
+	users    map[string]string   // the User map
+	teams    map[string][]string // the Team map
 	log      *slog.Logger
 	failures *prometheus.CounterVec
 	wg       sync.WaitGroup     // the Sink workers
@@ -65,7 +66,7 @@ func (f *failure) Error() string {
 // of cfg.
 func newOutbox(cfg *Config, log *slog.Logger, failures *prometheus.CounterVec) *outbox {
 	ctx, stop := context.WithCancel(context.Background())
-	o := &outbox{sinks: map[string]*sink{}, icons: cfg.Icons, users: cfg.Users, log: log, failures: failures, drain: make(chan struct{}), stop: stop}
+	o := &outbox{sinks: map[string]*sink{}, icons: cfg.Icons, users: cfg.Users, teams: cfg.Teams, log: log, failures: failures, drain: make(chan struct{}), stop: stop}
 	for name, sc := range cfg.Sinks {
 		sk := &sink{name: name, kinds: sc.kinds, queue: make(chan entry, queueSize), discord: newDiscordSender(sc)}
 		o.sinks[name] = sk
@@ -80,7 +81,7 @@ func newOutbox(cfg *Config, log *slog.Logger, failures *prometheus.CounterVec) *
 // delivery line for that Sink.
 func (o *outbox) deliver(e *Event, route *Route) {
 	attrs := e.logAttrs()
-	messageFor := render(e, o.icons, o.users)
+	messageFor := render(e, o.icons, o.users, o.teams)
 	// Under the read lock, the drain cannot start between the check and the
 	// enqueue, so a worker that stopped never misses a message.
 	o.mu.RLock()
