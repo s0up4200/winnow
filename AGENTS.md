@@ -23,7 +23,7 @@ Codex and other AI PR reviewers read this section. The other rules in this file 
 - Report a defect only when the change causes a concrete wrong behavior. Name the trigger and the result for the user. If you cannot name both, omit the finding.
 - Check the merge base. If `main` already has the problem, still report it, but label it "already on main" and do not call it a regression.
 - When the PR body, a linked issue, an ADR in `docs/adr/`, or a code comment calls a behavior deliberate, respond to that reason. Report a design flaw only when you can say why the stated reason does not hold.
-- Leave gofmt and golangci-lint findings to CI and the pre-commit hook. Do not ask for docstrings or for comments that restate the code.
+- Leave gofmt and golangci-lint findings to CI and the pre-commit hook. Do not ask for docstrings or other code comments. Report a stale comment.
 - Read earlier review threads. Repeat a resolved or refuted finding only with new evidence.
 
 ### Flag
