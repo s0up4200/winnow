@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -304,14 +305,25 @@ func (h *t3Hook) post(ctx context.Context, en t3Entry) (int, error) {
 	req.Header.Set("X-Winnow-Signature-256", signature(h.cfg.Secret, en.body))
 	resp, err := h.client.Do(req)
 	if err != nil {
-		if ue, ok := errors.AsType[*url.Error](err); ok {
-			err = ue.Err
-		}
-		return 0, err
+		return 0, postError(err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 	return resp.StatusCode, nil
+}
+
+// postError describes a failed send without the URL. The error of the HTTP
+// client can quote the URL, also inside a nested error such as a Location
+// header that does not parse, so only a network error keeps its text: it
+// names the host and the port, not the path.
+func postError(err error) error {
+	if oe, ok := errors.AsType[*net.OpError](err); ok {
+		return oe
+	}
+	if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() {
+		return errors.New("timeout")
+	}
+	return errors.New("request failed")
 }
 
 // fail counts f and writes the failed delivery line of the T3 hook.

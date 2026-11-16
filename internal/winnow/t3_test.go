@@ -292,6 +292,7 @@ func TestT3HookFailures(t *testing.T) {
 		{"network error retries then fails", repeat(reply{status: 0}, 100), "retries_exhausted", 0, false},
 		{"wrong signature fails at once", []reply{{status: http.StatusUnauthorized}}, "rejected", 401, true},
 		{"unknown hook fails at once", []reply{{status: http.StatusNotFound}}, "rejected", 404, true},
+		{"redirect with a Location that does not parse", repeat(reply{status: http.StatusFound, header: map[string]string{"Location": "/hooks/" + testT3Token + "/%zz"}}, 100), "retries_exhausted", 0, false},
 		{"redirect to a sign-in page fails at once", []reply{{status: http.StatusFound, header: map[string]string{"Location": "/login"}}}, "rejected", 302, true},
 	}
 	for _, tt := range tests {
