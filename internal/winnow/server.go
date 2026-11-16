@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -27,6 +28,7 @@ type Server struct {
 	cfg               *Config
 	log               *slog.Logger
 	outbox            *outbox
+	t3                *t3Hook // nil when cfg has no T3 hook
 	bursts            *bursts
 	store             *store           // nil when cfg has no Digests and no Sweep
 	now               func() time.Time // the clock; tests set a fixed time
@@ -73,7 +75,17 @@ func New(cfg *Config, log *slog.Logger) (*Server, error) {
 		Name: "winnow_digests_total",
 		Help: "Digest Periods by their final state.",
 	}, []string{"digest", "state"})
-	registry.MustRegister(sinkFailures, s.webhookRejections, s.events, s.digests)
+	t3Requests := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "winnow_t3_hook_requests_total",
+		Help: "T3 hook requests by outcome, and the reason of a failure.",
+	}, []string{"outcome", "reason"})
+	registry.MustRegister(sinkFailures, s.webhookRejections, s.events, s.digests, t3Requests)
+	if cfg.T3 != nil {
+		t3Requests.WithLabelValues("sent", "")
+		for _, reason := range []string{"queue_full", "rejected", "retries_exhausted", "shutdown"} {
+			t3Requests.WithLabelValues("failed", reason)
+		}
+	}
 	for name := range cfg.Sinks {
 		for _, reason := range []string{"queue_full", "rejected", "retries_exhausted", "shutdown"} {
 			sinkFailures.WithLabelValues(name, reason)
@@ -90,6 +102,7 @@ func New(cfg *Config, log *slog.Logger) (*Server, error) {
 		}
 	}
 	s.outbox = newOutbox(cfg, log, sinkFailures)
+	s.t3 = newT3Hook(cfg, log, t3Requests)
 	s.bursts = &bursts{wait: burstWait, deliver: s.outbox.deliver, open: map[burstKey]*burst{}}
 	s.Handle("GET /metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	// The pattern has no method, so that an unknown Source gets 404 before
@@ -104,7 +117,7 @@ func New(cfg *Config, log *slog.Logger) (*Server, error) {
 }
 
 // Shutdown sends each Burst that waits, then sends the messages left in the
-// Sink queues and returns when the queues are empty. When ctx ends first, the sends stop and each message that
+// Sink queues and the T3 hook queue and returns when the queues are empty. When ctx ends first, the sends stop and each message that
 // is not sent gets a failed delivery line with reason=shutdown. Call it after
 // the HTTP server stops. A handler that still runs after the drain starts
 // does not enqueue its message, but logs it with reason=shutdown. A second
@@ -112,7 +125,12 @@ func New(cfg *Config, log *slog.Logger) (*Server, error) {
 // Shutdown then closes the store. Stop Run before Shutdown.
 func (s *Server) Shutdown(ctx context.Context) {
 	s.bursts.flush()
-	s.outbox.shutdown(ctx)
+	var queues sync.WaitGroup
+	queues.Go(func() { s.outbox.shutdown(ctx) })
+	if s.t3 != nil {
+		queues.Go(func() { s.t3.shutdown(ctx) })
+	}
+	queues.Wait()
 	if s.store != nil {
 		if err := s.store.close(); err != nil {
 			s.log.Warn("store did not close", "error", err)
@@ -213,6 +231,9 @@ func (s *Server) dispatch(e *Event, at time.Time, backfill bool) outcome {
 			s.log.Error("store write failed", append(e.logAttrs(), "error", err)...)
 		}
 	}
+	// The T3 hook sees each admitted Event before the Route decision
+	// (ADR 0012).
+	s.t3.consider(e, at, s.now(), backfill)
 	var extra []any
 	if backfill {
 		extra = []any{"backfill", true}

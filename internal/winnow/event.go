@@ -34,6 +34,7 @@ type Event struct {
 	// Renderers read the others.
 	Delivery     string // X-GitHub-Delivery or X-Forgejo-Delivery
 	URL          string // link to the main object
+	IssueURL     string // link to the issue, pull request, or discussion, or "" when the Event has none
 	RepoURL      string // link to the repository; the References in Body and the Digest repository lines link to it
 	Title        string // title of the main object, for example the issue title
 	Number       int    // number of the issue, pull request, or discussion; 0 if none
@@ -48,6 +49,9 @@ type Event struct {
 	Push         Push         // push only
 	Alert        *Alert       // security Events
 	Sponsorship  *Sponsorship // sponsorship only
+	// mentions returns the logins that Body mentions. pinged sets it on its
+	// first call, so that the T3 hook and the Sinks scan Body once.
+	mentions func() []string
 }
 
 // Subject is a person or a team that a review request or an assignment
@@ -361,6 +365,7 @@ func parseEvent(source string, bots []string, h http.Header, body []byte) (*Even
 	// The link goes to the most specific object in the payload.
 	e.URL = cmp.Or(p.Comment.HTMLURL, p.Review.HTMLURL, p.Discussion.HTMLURL, p.Release.HTMLURL,
 		alertURL, p.PullRequest.HTMLURL, issue.HTMLURL, p.Compare, p.CompareURL, p.Forkee.HTMLURL, p.Repository.HTMLURL)
+	e.IssueURL = cmp.Or(issue.HTMLURL, p.PullRequest.HTMLURL, p.Discussion.HTMLURL)
 	e.Title = cmp.Or(issue.Title, p.PullRequest.Title, p.Discussion.Title, p.Release.Name, p.Release.TagName, p.Forkee.FullName)
 	e.Number = cmp.Or(issue.Number, p.PullRequest.Number, p.Discussion.Number)
 	// The body is the text of the most specific object, also when that text

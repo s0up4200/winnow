@@ -205,25 +205,33 @@ func TestCommentMentionLimits(t *testing.T) {
 }
 
 // pingsOf scans a comment only for a Sink that keeps the comments kind, and
-// only once for all Sinks.
+// only once for all Sinks and the T3 hook.
 func TestPingsShareCommentScan(t *testing.T) {
-	e := commentEvent(strings.Repeat("Text with #12 and @alice.\n\n", 2000))
+	body := strings.Repeat("Text with #12 and @alice.\n\n", 2000)
 	users := map[string]string{"alice": "111"}
 	comments := pingKinds{"comments": true}
-	allocs := func(kinds ...pingKinds) float64 {
+	allocs := func(t3 bool, kinds ...pingKinds) float64 {
 		return testing.AllocsPerRun(1, func() {
+			e := commentEvent(body)
+			if t3 {
+				_, logins := pinged(e, nil)
+				logins()
+			}
 			pings := pingsOf(e, users, nil)
 			for _, k := range kinds {
 				pings(k)
 			}
 		})
 	}
-	quiet, one, mixed := allocs(nil), allocs(comments), allocs(nil, comments, comments, nil)
+	quiet, one, mixed := allocs(false, nil), allocs(false, comments), allocs(false, nil, comments, comments, nil)
 	if one < quiet+1000 {
 		t.Errorf("quiet Sink made %.0f allocations, comment Pings made %.0f; scanning must stay lazy", quiet, one)
 	}
 	if mixed > one*1.2 {
 		t.Errorf("one Sink made %.0f allocations, mixed Sinks made %.0f; comment scanning must be shared", one, mixed)
+	}
+	if withT3 := allocs(true, comments); withT3 > one*1.2 {
+		t.Errorf("one Sink made %.0f allocations, the T3 hook and one Sink made %.0f; the T3 hook must share the scan", one, withT3)
 	}
 }
 
@@ -365,11 +373,20 @@ func TestCommentMentionEvents(t *testing.T) {
 		{"github/discussion_comment_created", "discussion_comment", "", "deleted", false},
 		{"forgejo/issue_comment-created", "issue_comment", "issue_comment", "edited", false},
 		{"forgejo/pull_request_comment-created", "issue_comment", "pull_request_comment", "deleted", false},
-		{"github/issues_opened", "issues", "", "opened", false},
-		{"github/pull_request_opened", "pull_request", "", "opened", false},
-		{"github/discussion_created", "discussion", "", "created", false},
-		{"github/pull_request_review_submitted", "pull_request_review", "", "submitted", false},
-		{"forgejo/pull_request_review_comment-reviewed", "pull_request_review", "pull_request_review_comment", "reviewed", false},
+		{"github/issues_opened", "issues", "", "opened", true},
+		{"github/pull_request_opened", "pull_request", "", "opened", true},
+		{"github/discussion_created", "discussion", "", "created", true},
+		{"github/pull_request_review_submitted", "pull_request_review", "", "submitted", true},
+		{"forgejo/issues-opened", "issues", "issues", "opened", true},
+		{"forgejo/pull_request-opened", "pull_request", "pull_request", "opened", true},
+		{"forgejo/pull_request_review_comment-reviewed", "pull_request_review", "pull_request_review_comment", "reviewed", true},
+		{"github/issues_opened", "issues", "", "edited", false},
+		{"github/pull_request_opened", "pull_request", "", "edited", false},
+		{"github/pull_request_opened", "pull_request", "", "synchronize", false},
+		{"github/discussion_created", "discussion", "", "edited", false},
+		{"github/pull_request_review_submitted", "pull_request_review", "", "edited", false},
+		{"github/pull_request_review_submitted", "pull_request_review", "", "dismissed", false},
+		{"forgejo/issues-opened", "issues", "issues", "edited", false},
 		{"github/issue_comment_created", "unknown_event", "", "created", false},
 	}
 	for _, tt := range tests {

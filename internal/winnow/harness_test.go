@@ -47,6 +47,9 @@ type harness struct {
 	replies chan reply
 	fake    *httptest.Server
 	gh      *fakeGitHub
+	t3      chan t3Got // each request that the fake T3 Code received
+	t3Reply chan reply // the scripted replies of the fake T3 Code
+	t3Fake  *httptest.Server
 	dir     string    // the directory of the store
 	clock   time.Time // the time of the server clock
 	config  string    // the configuration of the running server
@@ -76,16 +79,91 @@ func (h *harness) script(rs ...reply) {
 	}
 }
 
+// t3Got is one request that the fake T3 Code received.
+type t3Got struct {
+	Path      string // the URL path: /hooks/<testT3Token>/<owner>/<repo>
+	Body      []byte
+	Signature string // X-Winnow-Signature-256
+	Type      string // Content-Type
+}
+
+// testT3Token is the token in each T3 Code webhook URL of a test. No log line
+// may show it.
+const testT3Token = "t3-url-token"
+
+// testT3Total is the longest retry time of the T3 hook in a test.
+const testT3Total = 200 * time.Millisecond
+
+// scriptT3 makes the fake T3 Code use rs for its next replies, in order.
+// After them, it replies 202 again.
+func (h *harness) scriptT3(rs ...reply) {
+	for _, r := range rs {
+		h.t3Reply <- r
+	}
+}
+
+// waitT3 returns the next request that the fake T3 Code receives.
+func (h *harness) waitT3() t3Got {
+	h.t.Helper()
+	select {
+	case r := <-h.t3:
+		return r
+	case <-time.After(2 * time.Second):
+		h.t.Fatal("fake T3 Code received no request")
+		return t3Got{}
+	}
+}
+
+// t3Requests stops the server, so that the T3 hook queue is empty, and
+// returns the requests that the fake T3 Code got. Then it starts the server
+// again.
+func (h *harness) t3Requests() []t3Got {
+	h.t.Helper()
+	h.restart(h.config)
+	var got []t3Got
+	for len(h.t3) > 0 {
+		got = append(got, <-h.t3)
+	}
+	return got
+}
+
 // newHarness loads config and builds the handler. It replaces the discord URL
 // of each Sink with the URL of a fake Discord, and sets testRetryBase as the
-// retry base of each Sink. Each Sweep goes to h.gh, and a Sweep request to
+// retry base of each Sink. Each T3 hook URL goes to a fake T3 Code, which
+// records each request on h.t3 and replies 202, or the next reply from
+// h.scriptT3. Each Sweep goes to h.gh, and a Sweep request to
 // another host fails the test. The fake Discord records each request on
 // h.discord and replies 204, or the next reply from h.script. The logs go to
 // a buffer as JSON. The store is in a temporary directory, and the server
 // clock reads h.clock.
 func newHarness(t *testing.T, config string) *harness {
 	t.Helper()
-	h := &harness{t: t, logs: &syncBuffer{}, discord: make(chan discordRequest, 100), replies: make(chan reply, 100), dir: t.TempDir()}
+	h := &harness{t: t, logs: &syncBuffer{}, discord: make(chan discordRequest, 100), replies: make(chan reply, 100), dir: t.TempDir(),
+		t3: make(chan t3Got, 100), t3Reply: make(chan reply, 100)}
+	h.t3Fake = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		select {
+		case h.t3 <- t3Got{Path: r.URL.Path, Body: body, Signature: r.Header.Get("X-Winnow-Signature-256"), Type: r.Header.Get("Content-Type")}:
+		default:
+		}
+		rep := reply{status: http.StatusAccepted}
+		select {
+		case rep = <-h.t3Reply:
+		default:
+		}
+		if rep.status == 0 {
+			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+				conn.Close()
+			}
+			return
+		}
+		for k, v := range rep.header {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(rep.status)
+		_, _ = io.WriteString(w, rep.body)
+	}))
+	t.Cleanup(h.t3Fake.Close)
 	h.fake = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		// When h.discord is full, the fake Discord drops the record, so
@@ -141,6 +219,12 @@ func (h *harness) start(config string) {
 		if src.Sweep != nil {
 			src.Sweep.api, src.Sweep.transport = h.gh.URL, onlyHost{h.t, h.gh.Listener.Addr().String()}
 		}
+	}
+	if t3 := cfg.T3; t3 != nil {
+		for repo := range t3.Repos {
+			t3.Repos[repo] = h.t3Fake.URL + "/hooks/" + testT3Token + "/" + repo
+		}
+		t3.retryBase, t3.retryTotal = testRetryBase, testT3Total
 	}
 	cfg.Database = filepath.Join(h.dir, "winnow.db")
 	srv, err := New(cfg, slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
