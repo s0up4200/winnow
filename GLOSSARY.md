@@ -73,7 +73,7 @@ The list that links a forge team, as `org/slug`, to the logins of its members. W
 _Avoid_: team mapping, group, role map
 
 **Ping**:
-A Discord notification that winnow sends to a user in the User map, for a review request, an assignment, an `@login` in a new comment, an `@org/team` mention of a team in the Team map, or a new, cancelled, or changed sponsorship of a mapped Sponsors listing.
+A request for the attention of one user: a review request, an assignment, an `@login` in a new comment, in a submitted review summary, or in the description of a new issue, pull request, or discussion, an `@org/team` mention of a team in the Team map, or a new, cancelled, or changed sponsorship of a mapped Sponsors listing. A Sink shows a Ping as a Discord notification to a user in the User map. The T3 hook sends a Ping as a signed webhook request.
 _Avoid_: mention, notify
 
 **Ping kind**:
@@ -107,3 +107,11 @@ _Avoid_: redelivery, replay, catch-up
 **Sweep**:
 One pass over the recent deliveries of one Source. It stores each missed delivery as a Backfill.
 _Avoid_: poll, sync, reconcile
+
+**T3 hook**:
+The configuration that sends each Ping of one forge login from a Trusted sender to a T3 Code webhook, with one webhook URL for each repository. A T3 hook sits beside the Routes.
+_Avoid_: T3 sink, agent hook, trigger
+
+**Trusted sender**:
+A forge login in the sender list of the T3 hook. Only a Ping from a Trusted sender reaches the T3 hook.
+_Avoid_: allowlist, contributor, trusted user

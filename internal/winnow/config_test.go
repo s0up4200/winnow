@@ -142,6 +142,23 @@ routes:
 		{"team key with a space", "teams:\n  autobrr/rls review: [a]\n", "teams.autobrr/rls review: want org/slug"},
 		{"team with an empty list", "teams:\n  autobrr/devs: []\n", "teams.autobrr/devs: the list of members is empty"},
 		{"team with no value", "teams:\n  autobrr/devs:\n", "teams.autobrr/devs: the list of members is empty"},
+		{"T3 hook with no for", t3Section("", "[bob]", "x", "{ autobrr/qui: https://t3.example.invalid/1 }"), "t3.for is empty"},
+		{"T3 hook with no senders", t3Section("alice", "[]", "x", "{ autobrr/qui: https://t3.example.invalid/1 }"), "t3.senders is empty"},
+		{"T3 hook with an empty sender", t3Section("alice", `[bob, ""]`, "x", "{ autobrr/qui: https://t3.example.invalid/1 }"), "t3.senders: a login is empty"},
+		{"T3 hook with no secret", t3Section("alice", "[bob]", `""`, "{ autobrr/qui: https://t3.example.invalid/1 }"), "t3.secret is empty"},
+		{"T3 hook secret from an empty variable", t3Section("alice", "[bob]", `"${WINNOW_TEST_EMPTY}"`, "{ autobrr/qui: https://t3.example.invalid/1 }"),
+			"t3.secret: ${WINNOW_TEST_EMPTY} is unset or empty"},
+		{"T3 hook with no repos", t3Section("alice", "[bob]", "x", "{}"), "t3.repos is empty"},
+		{"T3 hook repo that is not owner/repo", t3Section("alice", "[bob]", "x", "{ qui: https://t3.example.invalid/1 }"), "t3.repos.qui: want owner/repo"},
+		{"T3 hook repo twice", t3Section("alice", "[bob]", "x", "{ autobrr/qui: https://t3.example.invalid/1, AutoBrr/Qui: https://t3.example.invalid/2 }"),
+			"t3.repos.autobrr/qui: another key names the same repository"},
+		{"T3 hook URL that is not http", t3Section("alice", "[bob]", "x", "{ autobrr/qui: ftp://t3.example.invalid/t3-url-token }"),
+			"t3.repos.autobrr/qui: want an http or https URL"},
+		{"T3 hook URL from an empty variable", t3Section("alice", "[bob]", "x", `{ autobrr/qui: "${WINNOW_TEST_EMPTY}" }`),
+			"t3.repos.autobrr/qui: ${WINNOW_TEST_EMPTY} is unset or empty"},
+		{"T3 hook with no value", "t3:\n", "t3 is empty"},
+		{"T3 hook that is null", "t3: ~\n", "t3 is empty"},
+		{"T3 hook with an unknown key", "t3: { for: alice, sender: [bob] }\n", "sender"},
 		{"backfill on a drop route", `
 routes:
   - match: {}
@@ -155,6 +172,9 @@ routes:
 			_, errs, _ := Load([]byte(tt.config))
 			if len(errs) != 1 || !strings.Contains(errs[0].Error(), tt.want) {
 				t.Errorf("errors = %v, want one error with %q", errs, tt.want)
+			}
+			if len(errs) > 0 && strings.Contains(errs[0].Error(), "t3-url-token") {
+				t.Errorf("error %q shows the T3 Code URL", errs[0])
 			}
 		})
 	}
@@ -337,6 +357,26 @@ func TestSampleConfiguration(t *testing.T) {
 				t.Errorf("route = %v, want %s", r, tt.want)
 			}
 		})
+	}
+}
+
+// t3Section returns a configuration with only a t3: section.
+func t3Section(forLogin, senders, secret, repos string) string {
+	return "t3:\n  for: " + forLogin + "\n  senders: " + senders + "\n  secret: " + secret + "\n  repos: " + repos + "\n"
+}
+
+func TestLoadT3Hook(t *testing.T) {
+	t.Setenv("WINNOW_T3_SECRET", "s3cret")
+	t.Setenv("WINNOW_T3_QUI", "https://t3.example.invalid/hooks/qui")
+	cfg, errs, warns := Load([]byte(t3Section("alice", "[bob, carol]", "${WINNOW_T3_SECRET}", `{ autobrr/qui: "${WINNOW_T3_QUI}" }`)))
+	if len(errs) > 0 || len(warns) > 0 {
+		t.Fatalf("errors = %v, warnings = %v, want none", errs, warns)
+	}
+	if cfg.T3.Secret != "s3cret" || cfg.T3.Repos["autobrr/qui"] != "https://t3.example.invalid/hooks/qui" {
+		t.Errorf("t3 = %+v, want the values of the variables", cfg.T3)
+	}
+	if cfg, _, _ := Load([]byte(quiConfig)); cfg.T3 != nil {
+		t.Errorf("t3 = %+v without a t3: section, want nil", cfg.T3)
 	}
 }
 

@@ -3,6 +3,7 @@ package winnow
 import (
 	"bytes"
 	"cmp"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -37,6 +38,7 @@ type Config struct {
 	// directory of the configuration file. Winnow opens it only when Digests
 	// is not empty or a Source has a Sweep.
 	Database string `yaml:"database"`
+	T3       *T3    `yaml:"t3"` // the T3 hook, or nil
 }
 
 // Source is one webhook endpoint, /hook/<name>, with its own secret.
@@ -288,6 +290,11 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 			errs = append(errs, fmt.Errorf("alerts: sink %q is not in sinks", cfg.Alerts))
 		}
 	}
+	if cfg.T3 != nil {
+		errs = append(errs, cfg.T3.load()...)
+	} else if t3Present(data) {
+		errs = append(errs, errors.New("t3 is empty"))
+	}
 	// An empty path opens a temporary database, which loses the send
 	// states and the swept deliveries at a restart.
 	if cfg.needsStore() {
@@ -299,6 +306,15 @@ func Load(data []byte) (cfg *Config, errs []error, warns []string) {
 		}
 	}
 	return cfg, errs, warns
+}
+
+// t3Present reports whether the file has a t3 key. The decoder leaves
+// Config.T3 nil for "t3:" with no value.
+func t3Present(data []byte) bool {
+	var top struct {
+		T3 yaml.Node `yaml:"t3"`
+	}
+	return yaml.Unmarshal(data, &top) == nil && top.T3.Kind != 0
 }
 
 // needsStore reports whether c has Digests or a Source with a Sweep.

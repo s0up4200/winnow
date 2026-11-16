@@ -55,7 +55,7 @@ Winnow listens on `:8080`. To use a different address, set `listen:`, for exampl
 
 ### Secrets from the environment
 
-Winnow reads a value from an environment variable when the value is one `${VAR}` placeholder and nothing else. This works only for a Source `secret`, a Sweep `token`, and a Sink `discord` URL. If the variable is unset or empty, winnow does not start.
+Winnow reads a value from an environment variable when the value is one `${VAR}` placeholder and nothing else. This works only for a Source `secret`, a Sweep `token`, a Sink `discord` URL, the `t3.secret`, and each URL in `t3.repos`. If the variable is unset or empty, winnow does not start.
 
 A literal value also works, for example `secret: test-secret`. Use this only for a local test.
 
@@ -80,7 +80,7 @@ The kinds are:
 
 - `review_requested`: a Ping to the requested reviewer of a pull request. A review request to a team in `teams:` pings the members of the team. One review request card pings at most 10 people.
 - `assigned`: a Ping to the assignee of an issue or a pull request. A Forgejo assignment does not ping, because the Forgejo payload does not name the assignee.
-- `comments`: a Ping for each direct `@login` mention in a new comment, and for each member of a team in `teams:` that an `@org/team` mention names.
+- `comments`: a Ping for each direct `@login` mention in a new comment, in a submitted review summary, or in the description of a new issue, pull request, or discussion. A member of a team in `teams:` also gets a Ping when an `@org/team` mention names the team.
 - `sponsorship`: a Ping to the sponsored account of a GitHub Sponsors listing, for a new sponsorship, a cancelled sponsorship, and a changed tier. The actions `edited`, `pending_cancellation`, and `pending_tier_change` do not ping. A Private sponsorship also pings. The Ping names only the sponsored account. For the Sponsors listing of an organization, put the organization login in `users:` with the Discord user ID of the person who gets the Ping.
 
 If the Sink does not keep the kind, the Sink still gets the message, but without a Ping. Winnow does not start when the list has an unknown kind. The error names the valid kinds. Winnow also does not start when the `mentions` key has no value.
@@ -100,7 +100,7 @@ routes:
 
 Login matching ignores letter case. Repeated mentions and aliases produce one ping per Discord user ID. Winnow does not ping the sender for their own login.
 
-Comment pings apply to new issue comments, comments on pull requests, code review comments, and discussion comments on GitHub and Forgejo. A submitted review summary does not cause comment pings. Edits, deletions, and issue, pull request, or discussion bodies do not cause comment pings.
+Comment pings apply to new issue comments, comments on pull requests, code review comments, and discussion comments on GitHub and Forgejo. They also apply to a submitted review summary, and to the description of a new issue, pull request, or discussion. Forgejo has no discussions. An edit or a deletion does not cause comment pings, so each text pings one time.
 
 Mentions in blockquotes, inline code, fenced and indented code blocks, URLs, image alt text, hidden HTML comments, lines of raw HTML such as `<details>` without a blank line after it, footnote labels, and escaped mentions stay quiet. Unmapped users and teams that are not in `teams:` stay quiet. A team mention pings the mapped members of the team, never the user of the org login. Raw Discord mention text cannot add pings. Pings appear above the message box, and the comment keeps its forge login text. A mention beyond the excerpt limit still pings. A comment larger than 256 KiB causes no pings. GitHub comments are never that large. Each message pings distinct users in mention order, up to 100 users and 2,000 characters. Excess users stay quiet so that Discord can accept the comment notification.
 
@@ -291,6 +291,57 @@ Winnow keeps the stored Events and does not delete them. It deletes a handled de
 
 To make a backup, stop winnow and copy the file. Alternatively, take a snapshot of the volume that includes the `winnow.db-wal` file.
 
+### T3 hook
+
+The T3 hook starts a T3 Code thread when a Trusted sender pings you. A Trusted sender is a forge login in the `senders` list. Winnow sends a signed webhook request to the T3 Code task of the repository. The agent in T3 Code can then read the issue and prepare a reply before you open it.
+
+```yaml
+t3:
+  for: alice                       # the login whose Pings go to T3 Code
+  senders: [bob, carol]            # the Trusted senders
+  secret: "${WINNOW_T3_SECRET}"    # signs each request
+  repos:
+    octo-org/app: "${WINNOW_T3_APP}"   # the webhook URL of the T3 Code task of this repository
+```
+
+All four keys are necessary. `for` is one login. `senders` has one or more logins. `repos` has one or more `owner/repo` keys, and each value is an `http` or `https` URL. Login and repository matching ignores letter case. If a key is missing, empty, unknown, or wrong, winnow does not start, and the error names the key. Without the `t3:` section, winnow sends no T3 hook requests.
+
+Winnow sends a request for an Event only when all of these conditions are true:
+
+- The repository is a key of `repos`.
+- The sender is in `senders`, is not a Bot sender, and is not `for`.
+- The Event pings `for` with the kind `comments` or `assigned`. The rules of the [Sinks](#sinks) decide what a Ping is, also for a team in `teams:`. `for` does not have to be in `users:`.
+
+A review request and a sponsorship never send a request. The T3 hook sees each Event before the Routes. A Route that drops the Event does not stop the request, and the T3 hook needs no Sink or Route. A Backfill sends a request only when the forge sent it less than 24 hours ago. One Event sends one request at most.
+
+The request is a `POST` with a JSON body and the header `X-Winnow-Signature-256: sha256=<hex>`. The hex value is the HMAC-SHA256 of the body with `t3.secret`, as GitHub signs its webhooks. The body holds facts only. It never holds the title, the comment text, or other text that the sender wrote. The agent must read the comment itself, as untrusted data.
+
+```json
+{
+  "forge": "github",
+  "repo": "octo-org/app",
+  "number": 42,
+  "kind": "comments",
+  "url": "https://github.com/octo-org/app/issues/42#issuecomment-1",
+  "issue_url": "https://github.com/octo-org/app/issues/42",
+  "sender": "bob",
+  "for": "alice",
+  "delivery": "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+  "backfill": false
+}
+```
+
+`url` links to the comment or the review. When the Event has neither, `url` is the same as `issue_url`. `delivery` is the delivery ID of the forge.
+
+Make one webhook task in T3 Code for each repository in `repos`, with these settings:
+
+1. Set the signature header to `X-Winnow-Signature-256`, the encoding to hex, and the prefix to `sha256=`.
+2. Set the secret to the value of `t3.secret`.
+3. Set the replay key to `{{body.delivery}}`, so that T3 Code drops a repeated delivery.
+4. Set the coalesce key to `{{body.issue_url}}`, so that T3 Code merges Pings on one issue that arrive close together.
+
+Winnow sends the requests from a queue of its own, so a slow T3 Code does not slow the Sinks. T3 Code replies `202` when it takes a request. After a network error, a `429`, or a `5xx`, winnow tries again for approximately 5 minutes. Then it writes one `t3 hook failed` line. After another `4xx`, for example a wrong signature, winnow writes the line at once. Winnow keeps no failed request, but Discord still gets the Ping. At shutdown, winnow sends the requests in the queue within the same drain time as the Sinks.
+
 ## Check a change
 
 Winnow reads the configuration only at startup. To apply a change, do these steps:
@@ -341,8 +392,8 @@ routes:
 Prometheus can scrape `GET /metrics` on the existing Winnow listener. The endpoint needs no configuration switch or separate port.
 Keep access on the internal network. The Cloudflare Tunnel must expose only `/hook/`, so that `/metrics` stays internal.
 
-Winnow exposes only these four counters. It does not expose Go runtime or process metrics.
-Every configured Sink, Source, and Digest has zero-valued series at startup for all its reasons, statuses, or states.
+Winnow exposes only these five counters. It does not expose Go runtime or process metrics.
+Every configured Sink, Source, and Digest has zero-valued series at startup for all its reasons, statuses, or states. The T3 hook counter has zero-valued series at startup when the configuration has a `t3:` section.
 `winnow_events_total` has no series at startup, because winnow does not know its label values in advance.
 
 | Counter | Labels | Values |
@@ -351,6 +402,7 @@ Every configured Sink, Source, and Digest has zero-valued series at startup for 
 | `winnow_webhook_rejections_total` | `source`, `status` | Configured Source name, and `400`, `401`, `405`, `413`, or `415` |
 | `winnow_events_total` | `source`, `repo`, `event`, `action`, `outcome`, `backfill`, `author_bot` | Configured Source name, repository, Event name, action, `matched`, `dropped`, or `unmatched`, and `true` or `false` for the last two labels |
 | `winnow_digests_total` | `digest`, `state` | Configured Digest name, and `sent`, `failed`, `skipped`, or `empty` |
+| `winnow_t3_hook_requests_total` | `outcome`, `reason` | `sent` with an empty `reason`, or `failed` with `queue_full`, `rejected`, `retries_exhausted`, or `shutdown` |
 
 The Sink counter counts one failed delivery cycle to one Sink, after Discord retries finish or when enqueue fails.
 An Event sent to two Sinks can produce two failures. Live Events, accepted Backfills, Digests, and Sweep alert messages all count.
@@ -380,6 +432,9 @@ The Digest counter counts each Period of each Digest one time, when winnow write
 `skipped` means that an older Period had no saved final state when a newer Period was due. `failed` means that Discord did not take the message after all retries.
 A failed try that winnow retries later does not count.
 
+The T3 hook counter counts each request one time, when T3 Code takes it or when winnow stops trying.
+The reasons of a failure have the same meaning as for a Sink. A retry does not count.
+
 Each Server keeps its own counters in memory. The counters reset on restart.
 Failures after the last successful scrape can disappear before Prometheus observes them.
 The listener closes before the Sink queues drain, so shutdown failures can occur after `/metrics` stops serving.
@@ -389,7 +444,7 @@ These counters support operational alerts. They are not a complete audit of lost
 
 Winnow logs `matched` at INFO when a Route selects Sinks for an Event. This line does not confirm delivery to Discord. Dropped and unmatched Events are logged at DEBUG. The default level is DEBUG. Start winnow with `--debug=false` to log only INFO and higher levels. With Docker Compose, add `command: ["--debug=false"]` to the service.
 
-Each Route decision line names the outcome (`matched`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. The line of a Backfill has `"backfill": true`. Winnow writes one ERROR line for each message that it cannot send to Discord. If winnow cannot write an Event to the store, it writes a `store write failed` line and sends the Event to its Routes as usual. To send a delivery again, find its delivery ID in the forge.
+Each Route decision line names the outcome (`matched`, `dropped`, or `unmatched`), the Route, the Sinks, and the delivery ID. The line of a Backfill has `"backfill": true`. Winnow writes one ERROR line for each message that it cannot send to Discord. If winnow cannot write an Event to the store, it writes a `store write failed` line and sends the Event to its Routes as usual. To send a delivery again, find its delivery ID in the forge. The T3 hook writes a `t3 hook sent` INFO line when T3 Code takes a request, and a `t3 hook failed` ERROR line when a request fails. Each line names the repository, the number, the Ping kind, the sender, the delivery ID, and the HTTP status. It never shows the T3 Code URL, because the URL holds a token.
 
 The logs are JSON when the output is not a terminal. In a terminal, they are colored text.
 

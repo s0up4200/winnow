@@ -28,67 +28,89 @@ const maxTargetPings = 10
 
 // pingsOf prepares the Pings of e for the User map users and the Team map
 // teams. It returns a function that gives the Ping text and the user IDs for
-// the Ping kinds of one Sink. Comment scanning runs only when needed, once per
+// the Ping kinds of one Sink. Mention scanning runs only when needed, once per
 // Event. Each call returns its own ID list.
 func pingsOf(e *Event, users map[string]string, teams map[string][]string) func(pingKinds) (string, []string) {
-	kind, targets := pingTargets(e, teams)
-	mentioned := sync.OnceValue(func() []string { return commentMentions(e.Body, e.Sender, users, teams) })
-	return func(kinds pingKinds) (text string, ids []string) {
-		for _, t := range targets {
-			id, ok := users[strings.ToLower(t)]
-			if !ok || !kinds[kind] || strings.EqualFold(t, e.Sender) || slices.Contains(ids, id) || len(ids) == maxTargetPings {
-				continue
-			}
-			if text != "" {
-				text += " "
-			}
-			text += "<@" + id + ">"
-			ids = append(ids, id)
-		}
-		if kinds["comments"] && len(users) > 0 {
-			switch e.NameAction() {
-			case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created":
-				for _, id := range mentioned() {
-					mention := "<@" + id + ">"
-					if text != "" {
-						mention = " " + mention
-					}
-					// 2000 characters leave room for the rest of the message.
-					if len(ids) == maxPingUsers || len(text)+len(mention) > 2000 {
-						break
-					}
-					text += mention
-					ids = append(ids, id)
+	kind, logins := pinged(e, teams)
+	limit := maxTargetPings
+	if kind == "comments" {
+		limit = maxPingUsers
+	}
+	mapped := sync.OnceValue(func() []string {
+		var ids []string
+		for _, login := range logins() {
+			if id, ok := users[login]; ok && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+				if len(ids) == limit {
+					break
 				}
 			}
+		}
+		return ids
+	})
+	return func(kinds pingKinds) (text string, ids []string) {
+		if !kinds[kind] || len(users) == 0 {
+			return "", nil
+		}
+		for _, id := range mapped() {
+			mention := "<@" + id + ">"
+			if text != "" {
+				mention = " " + mention
+			}
+			// 2000 characters leave room for the rest of the message.
+			if len(text)+len(mention) > 2000 {
+				break
+			}
+			text += mention
+			ids = append(ids, id)
 		}
 		return text, ids
 	}
 }
 
-// pingTargets returns the Ping kind of e and the logins that it pings: the
-// people of a new review request or a new assignment, with the members of
-// each team in teams in place of the team, or the sponsored account of a new,
-// cancelled, or changed sponsorship. Only these actions ping, so that each
-// change pings once.
-func pingTargets(e *Event, teams map[string][]string) (kind string, logins []string) {
+// pinged returns the Ping kind of e and a function that returns the logins
+// that e pings: lowercase, once each, in order, never the sender. A review
+// request or an assignment pings its people, with the members of each team
+// in teams in place of the team. A new, cancelled, or changed sponsorship
+// pings the sponsored account. A new comment, a submitted review summary,
+// and the description of a new issue, pull request, or discussion ping each
+// login that the text mentions. Only these actions ping, so that each change
+// pings once. The text is scanned on the first call of the function for e,
+// and teams must be the same on each call.
+func pinged(e *Event, teams map[string][]string) (kind string, logins func() []string) {
+	var targets []string
+	switch e.NameAction() {
+	case "issue_comment.created", "pull_request_review_comment.created", "discussion_comment.created",
+		"pull_request_review.submitted", "issues.opened", "pull_request.opened", "discussion.created":
+		if e.mentions == nil {
+			e.mentions = sync.OnceValue(func() []string { return commentMentions(e.Body, e.Sender, teams) })
+		}
+		return "comments", e.mentions
+	}
 	switch {
 	case e.Sponsorship != nil:
 		switch e.Action {
 		case "created", "cancelled", "tier_changed":
-			return "sponsorship", []string{e.Sponsorship.Sponsorable}
+			kind, targets = "sponsorship", []string{e.Sponsorship.Sponsorable}
 		}
 	case e.Action == "review_requested", e.Action == "assigned":
+		kind = e.Action
 		for _, s := range e.Subjects {
 			if s.Team {
-				logins = append(logins, teams[strings.ToLower(s.Name)]...)
+				targets = append(targets, teams[strings.ToLower(s.Name)]...)
 			} else {
-				logins = append(logins, s.Name)
+				targets = append(targets, s.Name)
 			}
 		}
-		return e.Action, logins
 	}
-	return "", nil
+	var out []string
+	for _, t := range targets {
+		t = strings.ToLower(t)
+		if !strings.EqualFold(t, e.Sender) && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return kind, func() []string { return out }
 }
 
 // commentMarkdown parses comments as GitHub Flavored Markdown. Linkify turns
@@ -96,7 +118,7 @@ func pingTargets(e *Event, teams map[string][]string) (kind string, logins []str
 // footnote reference as a number, so its label stays quiet.
 var commentMarkdown = goldmark.New(goldmark.WithExtensions(extension.GFM, extension.Footnote))
 
-// maxMentionScan is the size in bytes of the largest comment that can ping.
+// maxMentionScan is the size in bytes of the largest text that can ping.
 // The parser builds a node for each paragraph, so a 25 MiB comment can use
 // gigabytes of memory. GitHub keeps at most 65,536 characters in a comment, so
 // a GitHub comment always fits.
@@ -105,30 +127,30 @@ const maxMentionScan = 256 << 10
 // mentionLogin matches @login and @org/slug. Group 2 is the /slug of a team.
 var mentionLogin = regexp.MustCompile(`@([[:alnum:]_][[:alnum:]_.-]*)(/[[:alnum:]_-]+)?`)
 
-// commentMentions reads a comment and returns mapped IDs in text order. A
-// mention of a team in teams adds its members in list order, never the org.
-// It leaves quoted text, code, HTML blocks and tags, and URLs quiet. A comment
-// longer than maxMentionScan returns no IDs.
-func commentMentions(body, sender string, users map[string]string, teams map[string][]string) []string {
+// commentMentions reads a comment, a review summary, or a description and
+// returns the logins that it mentions: lowercase, once each, in text order,
+// never the sender. A mention of a team in teams adds its members in list
+// order, never the org. It leaves quoted text, code, HTML blocks and tags,
+// and URLs quiet. A text longer than maxMentionScan returns no logins.
+func commentMentions(body, sender string, teams map[string][]string) []string {
 	if len(body) > maxMentionScan {
 		return nil
 	}
 	src := []byte(body)
-	var ids []string
+	var logins []string
+	seen := map[string]bool{}
 	add := func(login string) {
-		if strings.EqualFold(login, sender) {
-			return
-		}
-		if id, ok := users[strings.ToLower(login)]; ok && !slices.Contains(ids, id) {
-			ids = append(ids, id)
+		login = strings.ToLower(login)
+		if !seen[login] && !strings.EqualFold(login, sender) {
+			seen[login] = true
+			logins = append(logins, login)
 		}
 	}
 	expanded := map[string]bool{} // a repeated team mention adds no one, so expand each team once
 	// scan finds the mentions in src[start:stop].
 	scan := func(start, stop int) {
-		// Take one match at a time. A long comment can hold millions. A
-		// message cannot ping more than maxPingUsers, so stop there.
-		for start < stop && len(ids) < maxPingUsers {
+		// Take one match at a time. A long comment can hold millions.
+		for start < stop {
 			loc := mentionLogin.FindSubmatchIndex(src[start:stop])
 			if loc == nil {
 				return
@@ -179,7 +201,7 @@ func commentMentions(body, sender string, users map[string]string, teams map[str
 		return ast.WalkContinue, nil
 	})
 	flush()
-	return ids
+	return logins
 }
 
 // escapedAt reports whether an odd number of backslashes precedes i.

@@ -149,3 +149,12 @@ digests:
       owner: autobrr
       event: [pull_request, issues, release, star, fork, discussion]
       not: { author_bot: true }
+
+# The T3 hook sends each Ping of alice from bob or carol on autobrr/qui to the
+# T3 Code task of the repository. Remove the # signs to use it.
+# t3:
+#   for: alice
+#   senders: [bob, carol]
+#   secret: "${WINNOW_T3_SECRET}"
+#   repos:
+#     autobrr/qui: "${WINNOW_T3_QUI}"

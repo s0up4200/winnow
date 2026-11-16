@@ -25,3 +25,11 @@ func equalHex(s string, sum []byte) bool {
 	got, err := hex.DecodeString(s)
 	return err == nil && hmac.Equal(got, sum)
 }
+
+// signature returns "sha256=<hex>", the HMAC-SHA256 of body under secret, as
+// GitHub sends it in X-Hub-Signature-256.
+func signature(secret string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}

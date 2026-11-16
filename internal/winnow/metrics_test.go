@@ -29,9 +29,9 @@ func (h *harness) metrics() map[string]*dto.MetricFamily {
 	}
 	for name := range families {
 		switch name {
-		case "winnow_sink_delivery_failures_total", "winnow_webhook_rejections_total", "winnow_events_total", "winnow_digests_total":
+		case "winnow_sink_delivery_failures_total", "winnow_webhook_rejections_total", "winnow_events_total", "winnow_digests_total", "winnow_t3_hook_requests_total":
 		default:
-			h.t.Fatalf("metric family %s, want only the four application counters", name)
+			h.t.Fatalf("metric family %s, want only the five application counters", name)
 		}
 	}
 	return families
